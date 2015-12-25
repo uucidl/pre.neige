@@ -5,6 +5,7 @@
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o"
 */
+// Platform Configuration
 #define CPU_IA32 (1)
 #define CPU_IA64 (2)
 #if defined(OS_OSX)
@@ -24,6 +25,8 @@
 #define global_variable DOC("mark global variables") static
 #define local_state DOC("mark locally persistent variables") static
 #define UNUSED_PARAMETER(x) ((void)x)
+// NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
+#define StaticArrayCount(array) (sizeof(array) / sizeof(*array))
 // Word Types
 using u8 = unsigned char;
 using s8 = signed char;
@@ -310,16 +313,21 @@ void render_next_gl3(unsigned long long micros, Display display)
     }
   }
 }
-struct audio_sample DOC("a clip of audio data")
+struct audio_sample_header DOC("a clip of audio data")
 {
   float64 start_time;
   float64 end_time;
+  float64 data_rate_hz;
   float32 *data;
   u32 data_size;
 };
-global_variable audio_sample global_default_audio_sample;
-audio_sample get_audio_sample() { return global_default_audio_sample; }
-double mix_audio_sample(audio_sample audio_sample, double time,
+global_variable audio_sample_header global_audio_samples[7];
+global_variable u8 global_audio_sample_index = 0;
+audio_sample_header get_audio_sample()
+{
+  return global_audio_samples[global_audio_sample_index];
+}
+double mix_audio_sample(audio_sample_header audio_sample, double time,
                         double *destination, u32 mix_count)
 {
   double attack_time = 48.0;
@@ -351,11 +359,13 @@ void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
   for_each_n(right, sample_count, [](double &sample) { sample = 0.0; });
 
   local_state double sample_phase = -1.0;
+  auto sample = get_audio_sample();
   if (global_events & GlobalEvents_PressedDown) {
     global_events = global_events & (~GlobalEvents_PressedDown); // consume
     sample_phase = 0.0;
+    global_audio_sample_index =
+      (global_audio_sample_index + 1) % StaticArrayCount(global_audio_samples);
   }
-  auto sample = get_audio_sample();
   if (sample_phase >= sample.start_time && sample_phase <= sample.end_time) {
     mix_audio_sample(sample, sample_phase + 0.01, left, sample_count);
     sample_phase = mix_audio_sample(sample, sample_phase, right, sample_count);
@@ -388,11 +398,13 @@ void free(slab_allocator *slab_allocator, memory_address start,
   fatal_ifnot(start == slab_allocator->unallocated_start - size);
   slab_allocator->unallocated_start = start;
 }
-audio_sample make_audio_sample(slab_allocator *slab_allocator, u32 sample_count)
+audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
+                                      u32 sample_count, float64 data_rate_hz)
 {
-  audio_sample header;
+  audio_sample_header header;
   header.start_time = 0.0;
   header.end_time = sample_count;
+  header.data_rate_hz = data_rate_hz;
   header.data_size = sample_count;
   header.data = reinterpret_cast<float32 *>(
     alloc(slab_allocator, SizeOf(float32) * header.data_size));
@@ -400,7 +412,17 @@ audio_sample make_audio_sample(slab_allocator *slab_allocator, u32 sample_count)
 }
 URL("http://www.intel.com/content/www/us/en/processors/"
     "architectures-software-developer-manuals.html")
-double cpu_cos(double x);
+double cpu_sin(double x);
+void fill_sample_with_sin(audio_sample_header sample, double frequency_hz)
+{
+  float64 const PI = 3.141592653589793238463;
+  float64 phase_increment = 2.0 * PI * frequency_hz / sample.data_rate_hz;
+  float64 phase = 0.0;
+  for (u32 index = 0; index < sample.data_size; ++index) {
+    sample.data[index] = cpu_sin(phase);
+    phase = phase + phase_increment;
+  }
+}
 int main(int argc, char **argv) DOC("application entry point")
 {
   UNUSED_PARAMETER(argc);
@@ -408,17 +430,13 @@ int main(int argc, char **argv) DOC("application entry point")
   auto memory_size = 1024 * 1024 * 1024;
   auto memory = vm_alloc(memory_size);
   auto slab_allocator = make_slab_allocator(memory, memory_size);
-  {
-    float64 const PI = 3.141592653589793238463;
-    auto sample = make_audio_sample(&slab_allocator, 48000);
-    float64 phase_increment = 2.0 * PI * 220.0 / 48000.0;
-    float64 phase = 0.0;
-    for (u32 index = 0; index < sample.data_size; ++index) {
-      sample.data[index] = cpu_cos(phase);
-      phase = phase + phase_increment;
-    }
-    global_default_audio_sample = sample;
-  }
+  double freq_hz = 110.0;
+  for_each_n(global_audio_samples, StaticArrayCount(global_audio_samples),
+             [&](audio_sample_header &header) {
+               header = make_audio_sample(&slab_allocator, 48000 / 3.0, 48000);
+               fill_sample_with_sin(header, freq_hz);
+               freq_hz *= 3.0 / 2.0;
+             });
   query_ds4(0);
   runtime_init();
   hid_exit();
@@ -426,7 +444,7 @@ int main(int argc, char **argv) DOC("application entry point")
 }
 // CPU
 #if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
-double cpu_cos(double x)
+double cpu_sin(double x)
 {
   double y;
   asm("fld %0\nfsin" : "=t"(y) : "f"(x));
