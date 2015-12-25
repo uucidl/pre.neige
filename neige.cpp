@@ -1,8 +1,8 @@
 /*
-  OSX: "clang++ -DOS_OSX -g -std=c++11 -framework System -Wall -Wextra
-  -Wno-tautological-compare neige.cpp
-  -o neige -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/
-  -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa
+  OSX: "clang++ -DOS_OSX -g -std=c++11 -framework System -Wall -Wextra \
+  -Wno-tautological-compare neige.cpp \
+  -o neige -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
+  -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o"
 */
 // Platform Configuration
