@@ -1,0 +1,9 @@
+[submodule "uu.micros"]
+	path = uu.micros
+	url = git@github.com:uucidl/uu.micros.git
+[submodule "hidapi"]
+	path = hidapi
+	url = git@github.com:signal11/hidapi.git
+[submodule "uu.ticks"]
+	path = uu.ticks
+	url = git@github.com:uucidl/uu.ticks.git
