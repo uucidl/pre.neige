@@ -1,7 +1,8 @@
 /*
   OSX: "clang++ -DOS_OSX -g -std=c++11 -framework System -Wall -Wextra \
   -Wno-tautological-compare neige.cpp \
-  -o neige -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
+  -o neige -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/
+  \
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o"
 */
@@ -331,7 +332,7 @@ double mix_audio_sample(audio_sample_header audio_sample, double time,
                         double *destination, u32 mix_count)
 {
   double attack_time = 48.0;
-  double decay_time = 48.0;
+  double decay_time = 2 * 48.0;
   double const st = audio_sample.start_time;
   double const et = audio_sample.end_time;
   for_each_n(destination, mix_count, [&](double &destination) {
@@ -339,36 +340,65 @@ double mix_audio_sample(audio_sample_header audio_sample, double time,
     if (t >= st && t < et) {
       double attack_slope = (t - st) / attack_time;
       double decay_slope = (et - t) / decay_time;
-      double a = ((t - st) < attack_time)
+      double a = ((t - st) <= attack_time)
                    ? attack_slope
-                   : (((et - t) < decay_time) ? decay_slope : 1.0);
+                   : (((et - t) <= decay_time) ? decay_slope : 1.0);
       u32 audio_sample_index = u32(time);
       if (audio_sample_index >= 0 &&
           audio_sample_index < audio_sample.data_size) {
-        destination = a * audio_sample.data[audio_sample_index];
+        destination = destination + a * audio_sample.data[audio_sample_index];
       }
       time += 1.0;
     }
   });
   return time;
 }
+struct polyphonic_voice_header {
+  float64 phase;
+  audio_sample_header sample;
+};
+struct polyphony_header {
+  u8 free_voices;
+  polyphonic_voice_header voices[8];
+};
+u8 bit_scan_reverse32(u32 x);
+static_assert(StaticArrayCount(polyphony_header::voices) >=
+                8 * SizeOf(polyphony_header::free_voices),
+              "too small bitflag");
 void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
                                   double *left, double *right)
 {
+  local_state polyphony_header polyphony = {0xff, {}};
   for_each_n(left, sample_count, [](double &sample) { sample = 0.0; });
   for_each_n(right, sample_count, [](double &sample) { sample = 0.0; });
-
-  local_state double sample_phase = -1.0;
-  auto sample = get_audio_sample();
   if (global_events & GlobalEvents_PressedDown) {
     global_events = global_events & (~GlobalEvents_PressedDown); // consume
-    sample_phase = 0.0;
+    if (polyphony.free_voices == 0) {
+      // NOTE(uucidl): steal oldest voice
+      polyphony.free_voices |= 1 << (StaticArrayCount(polyphony.voices) - 1);
+    }
+    u8 free_voice_index = bit_scan_reverse32(polyphony.free_voices);
+    auto voice = polyphony.voices + free_voice_index;
+    voice->sample = get_audio_sample();
+    voice->phase = 0.0;
+    polyphony.free_voices &= ~(1 << free_voice_index);
     global_audio_sample_index =
       (global_audio_sample_index + 1) % StaticArrayCount(global_audio_samples);
   }
-  if (sample_phase >= sample.start_time && sample_phase <= sample.end_time) {
-    mix_audio_sample(sample, sample_phase + 0.01, left, sample_count);
-    sample_phase = mix_audio_sample(sample, sample_phase, right, sample_count);
+  for (u32 voice_index = 0; voice_index < StaticArrayCount(polyphony.voices);
+       ++voice_index) {
+    auto voice = polyphony.voices + voice_index;
+    if ((polyphony.free_voices & (1 << voice_index)) == 0) {
+      auto sample = voice->sample;
+      auto sample_phase = voice->phase;
+      if (sample_phase >= sample.start_time && sample_phase < sample.end_time) {
+        mix_audio_sample(sample, sample_phase + 0.01, left, sample_count);
+        voice->phase =
+          mix_audio_sample(sample, sample_phase, right, sample_count);
+      } else if (sample_phase >= sample.end_time) {
+        polyphony.free_voices = 1 << voice_index; // free the voice
+      }
+    }
   }
 }
 struct slab_allocator {
@@ -433,9 +463,12 @@ int main(int argc, char **argv) DOC("application entry point")
   double freq_hz = 110.0;
   for_each_n(global_audio_samples, StaticArrayCount(global_audio_samples),
              [&](audio_sample_header &header) {
-               header = make_audio_sample(&slab_allocator, 48000 / 3.0, 48000);
+               header = make_audio_sample(&slab_allocator, 48000 / 2.0, 48000);
                fill_sample_with_sin(header, freq_hz);
                freq_hz *= 3.0 / 2.0;
+               while (freq_hz >= 330.0) {
+                 freq_hz -= 220.0;
+               }
              });
   query_ds4(0);
   runtime_init();
@@ -448,6 +481,12 @@ double cpu_sin(double x)
 {
   double y;
   asm("fld %0\nfsin" : "=t"(y) : "f"(x));
+  return y;
+}
+u8 bit_scan_reverse32(u32 x)
+{
+  u32 y;
+  asm("bsrl %1,%0" : "=r"(y) : "r"(x));
   return y;
 }
 #endif
