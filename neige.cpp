@@ -6,7 +6,11 @@
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o"
 */
-// Platform Configuration
+/* TAG(project)
+   - TODO(nicolas): chords
+   - TODO(nicolas): load sample
+ */
+// (Platform Configuration)
 #define CPU_IA32 (1)
 #define CPU_IA64 (2)
 #if defined(OS_OSX)
@@ -17,24 +21,24 @@
 #if !defined(COMPILER_CLANG) && defined(__clang__)
 #define COMPILER_CLANG
 #endif
-// Meta
+// (Meta)
 #define DOC(...) // to document a symbol
 #define URL(...) // reference to a resource
-// Compiler
+// (Compiler)
 #define CLANG_ATTRIBUTE(x) __attribute__((x))
 #define debugger_break() DOC("invoke debugger") asm("int3")
 #define global_variable DOC("mark global variables") static
 #define local_state DOC("mark locally persistent variables") static
 #define UNUSED_PARAMETER(x) ((void)x)
 // NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
-#define StaticArrayCount(array) (sizeof(array) / sizeof(*array))
-// Concepts
+#define FixedArrayCount(array) (sizeof(array) / sizeof(*array))
+// (Concepts)
 #define MODELS(...)
 #define REQUIRES(...)
 #define Iterator typename
 #define Integral typename
 #define UnaryFunction typename
-// Word Types
+// (Word Types)
 using u8 = unsigned char;
 using u16 = unsigned short;
 using u32 = unsigned int;
@@ -55,54 +59,66 @@ static_assert(sizeof(u64) == 8, "u64");
 static_assert(sizeof(s64) == 8, "s64");
 static_assert(sizeof(float32) == 4, "float32");
 static_assert(sizeof(float64) == 8, "float64");
-// SizeOf
+// (SizeOf)
 #define SizeOf(x) sizeof(x)
-// PointerOf
+// (PointerOf)
 #define PointerOf(T) T *
-// DistanceType
+// (DistanceType)
 template <typename T> struct distance_type_impl {
 };
 template <typename T> struct distance_type_impl<PointerOf(T)> {
   using type = u64;
 };
 #define DistanceType(T) typename distance_type_impl<T>::type
-// memory_address
+// (Memory)
 using memory_address = PointerOf(u8);
 using memory_size = DistanceType(memory_address);
 static_assert(SizeOf(memory_address) == SizeOf(memory_size),
               "memory_size incorrect for architecture");
-// Array Type
-template <typename T, u64 N> constexpr u64 container_size(T(&)[N]) { return N; }
-// safe modular Integers
+// (Fixed Array Type)
+template <typename T, memory_size N> constexpr u64 container_size(T(&)[N])
+{
+  return N;
+}
+template <typename T, memory_size N> struct fixed_array_header {
+  T(&array)[N];
+  fixed_array_header(T(&init_array)[N]) : array(init_array) {}
+  T &operator[](memory_size i) { return array[i]; };
+};
+template <typename T, memory_size N>
+fixed_array_header<T, N> make_fixed_array_header(T(&array)[N])
+{
+  fixed_array_header<T, N> header = {array};
+  return header;
+}
+template <typename T, memory_size N>
+PointerOf(T) begin(fixed_array_header<T, N> &x)
+{
+  return &x[0];
+}
+template <typename T, memory_size N>
+constexpr u64 container_size(fixed_array_header<T, N> const &)
+{
+  return N;
+}
+// (Modular Integers)
 #define Integer typename
 struct modular_integer_tag {
 };
 template <typename T> struct integer_concept {
 };
-template <> struct integer_concept<u8> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<u16> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<u32> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<u64> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<s8> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<s16> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<s32> {
-  using concept = modular_integer_tag;
-};
-template <> struct integer_concept<s64> {
-  using concept = modular_integer_tag;
-};
+#define DefineModularInteger(T)                                                \
+  template <> struct integer_concept<T> {                                      \
+    using concept = modular_integer_tag;                                       \
+  };
+DefineModularInteger(u8);
+DefineModularInteger(u16);
+DefineModularInteger(u32);
+DefineModularInteger(u64);
+DefineModularInteger(s8);
+DefineModularInteger(s16);
+DefineModularInteger(s32);
+DefineModularInteger(s64);
 #define IntegerConcept(T) typename integer_concept<T>::concept
 template <Integer I>
 bool addition_less(I x, I addand, I limit, modular_integer_tag)
@@ -124,11 +140,12 @@ template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
 {
   return addition_less(x, addand, limit) || ((x + addand) == limit);
 }
-// Algorithms
+// (Algorithms)
 template <Integral I> bool zero(I x) { return x == I(0); }
 template <Integral I> I successor(I x) { return x + 1; }
 template <Integral I> I predecessor(I x) { return x - 1; }
 template <typename T> T &source(PointerOf(T) x) { return *x; }
+template <typename T> T &sink(PointerOf(T) x) { return *x; }
 template <typename T> PointerOf(T) successor(PointerOf(T) x) { return x + 1; }
 template <typename T> PointerOf(T) predecessor(PointerOf(T) x) { return x - 1; }
 template <typename T> memory_address AddressOf(T &x)
@@ -149,8 +166,20 @@ REQUIRES(Domain(Op) == ValueType(InputIterator)) InputIterator
 
   return first;
 }
-
-// Os
+template <Iterator I0, Integral C0, Iterator I1, Integral C1>
+REQUIRES(ValueType(I0) == ValueType(I1)) void copy_bounded(I0 from,
+                                                           C0 from_size, I1 to,
+                                                           C1 to_size)
+{
+  while (from_size > 0 && to_size > 0) {
+    sink(to) = source(from);
+    from = successor(from);
+    to = successor(to);
+    --from_size;
+    --to_size;
+  }
+}
+// (Os)
 // die if bool is false
 #define fatal_ifnot(x)                                                         \
   if (!(x)) {                                                                  \
@@ -164,7 +193,7 @@ memory_address vm_alloc(memory_size size) DOC("allocate from virtual memory");
 /// release a block from the OS' virtual memory
 void vm_free(memory_size size, memory_address data)
   DOC("free from virtual memory");
-// DualShock4
+// (DualShock4)
 enum DS4Constants {
   DS4Constants_MAGIC = 0x0004ff05,
   DS4Constants_VendorId = 0x54c,
@@ -205,7 +234,7 @@ struct DS4Out DOC("Output message for wired connection")
 };
 #pragma pack(pop)
 #include "hidapi/hidapi/hidapi.h"
-// Main
+// (Main)
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
@@ -285,7 +314,7 @@ void render_next_gl3(unsigned long long micros, Display display)
       vec3 bright_blue = {0.3f, 0.7f, 1.0f};
       vec3 white = {1.0f, 1.0f, 1.0f};
       vec3 colors[] = {green, pink, yellow, grey, bright_blue, white};
-      u16 colors_size = SizeOf(colors) / SizeOf(colors[0]);
+      u16 colors_size = container_size(colors);
       local_state bool was_down = false;
       bool is_down = ds4.buttons >> 4;
       if (is_down) {
@@ -321,17 +350,26 @@ struct audio_sample_header DOC("a clip of audio data")
   float64 start_time;
   float64 end_time;
   float64 data_rate_hz;
+  float64 root_hz; // tuning frequency in hz
   float32 *data;
   u32 data_size;
 };
-global_variable audio_sample_header global_audio_samples[45];
+global_variable audio_sample_header global_audio_samples[1];
 global_variable u8 global_audio_sample_index = 0;
+global_variable s8 *global_music;
+global_variable u8 global_music_size;
+global_variable u8 global_music_index = 0;
 audio_sample_header get_audio_sample()
 {
   return global_audio_samples[global_audio_sample_index];
 }
+template <typename T> T interpolate_linear(T a, T b, float64 a_b)
+{
+  return (1.0 - a_b) * a + a_b * b;
+}
 double mix_audio_sample(audio_sample_header audio_sample, double time,
-                        double *destination, u32 mix_count)
+                        double time_increment, double *destination,
+                        u32 mix_count)
 {
   double attack_time = 48.0;
   double decay_time = 2 * 48.0;
@@ -348,25 +386,59 @@ double mix_audio_sample(audio_sample_header audio_sample, double time,
       u32 audio_sample_index = u32(time);
       if (audio_sample_index >= 0 &&
           audio_sample_index < audio_sample.data_size) {
-        destination = destination + a * audio_sample.data[audio_sample_index];
+        float64 frac = time - float64(audio_sample_index);
+        auto next_sample_index =
+          audio_sample_index >= et ? u32(st) : 1 + audio_sample_index;
+        float32 x =
+          interpolate_linear(audio_sample.data[audio_sample_index],
+                             audio_sample.data[next_sample_index], frac);
+        destination = destination + a * x;
       }
-      time += 1.0;
+      time += time_increment;
     }
   });
   return time;
 }
 struct polyphonic_voice_header {
   float64 phase;
+  float64 phase_speed;
   audio_sample_header sample;
 };
+void make_voice(polyphonic_voice_header *voice, audio_sample_header sample)
+{
+  voice->phase = 0.0;
+  voice->phase_speed = 1.0;
+  voice->sample = sample;
+}
 struct polyphony_header {
   u8 free_voices;
   polyphonic_voice_header voices[8];
 };
 u8 bit_scan_reverse32(u32 x);
-static_assert(StaticArrayCount(polyphony_header::voices) >=
+static_assert(FixedArrayCount(polyphony_header::voices) >=
                 8 * SizeOf(polyphony_header::free_voices),
               "too small bitflag");
+extern "C" double pow(double m, double e); // TODO(uucidl): replace libc pow
+float64 major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
+{
+  u8 scale[] = {
+    0, 2, 4, 5, 7, 9, 11,
+  };
+  u8 scale_count = container_size(scale);
+  s8 octave_offset = 0;
+  while (major_scale_offset < 0) {
+    major_scale_offset += scale_count;
+    --octave_offset;
+  }
+  while (major_scale_offset >= scale_count) {
+    major_scale_offset -= scale_count;
+    ++octave_offset;
+  }
+  float64 note =
+    float64(octave_offset) + float64(scale[major_scale_offset]) / 12.0;
+  float64 freq_hz = root_freq_hz * pow(2.0, note);
+  return freq_hz;
+}
 void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
                                   double *left, double *right)
 {
@@ -381,23 +453,25 @@ void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
     }
     u8 free_voice_index = bit_scan_reverse32(polyphony.free_voices);
     auto voice = polyphony.voices + free_voice_index;
-    voice->sample = get_audio_sample();
-    voice->phase = 0.0;
+    make_voice(voice, get_audio_sample());
+    auto freq_hz = major_scale_freq_hz(440.0, global_music[global_music_index]);
+    voice->phase_speed =
+      freq_hz / voice->sample.root_hz * voice->sample.data_rate_hz / 48000.0;
     polyphony.free_voices &= ~(1 << free_voice_index);
-    global_audio_sample_index =
-      (global_audio_sample_index + 1) % container_size(global_audio_samples);
+    global_music_index = (global_music_index + 1) % global_music_size;
   }
   for (u32 voice_index = 0; voice_index < container_size(polyphony.voices);
        ++voice_index) {
     auto voice = polyphony.voices + voice_index;
     if ((polyphony.free_voices & (1 << voice_index)) == 0) {
       auto sample = voice->sample;
-      auto sample_phase = voice->phase;
-      if (sample_phase >= sample.start_time && sample_phase < sample.end_time) {
-        mix_audio_sample(sample, sample_phase + 0.01, left, sample_count);
+      auto phase = voice->phase;
+      auto phase_speed = voice->phase_speed;
+      if (phase >= sample.start_time && phase < sample.end_time) {
+        mix_audio_sample(sample, phase + 0.01, phase_speed, left, sample_count);
         voice->phase =
-          mix_audio_sample(sample, sample_phase, right, sample_count);
-      } else if (sample_phase >= sample.end_time) {
+          mix_audio_sample(sample, phase, phase_speed, right, sample_count);
+      } else if (phase >= sample.end_time) {
         polyphony.free_voices = 1 << voice_index; // free the voice
       }
     }
@@ -455,27 +529,6 @@ void fill_sample_with_sin(audio_sample_header sample, double frequency_hz)
     phase = phase + phase_increment;
   }
 }
-extern "C" double pow(double m, double e);
-float64 major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
-{
-  u8 scale[] = {
-    0, 2, 4, 5, 7, 9, 11,
-  };
-  u8 scale_count = container_size(scale);
-  s8 octave_offset = 0;
-  while (major_scale_offset < 0) {
-    major_scale_offset += scale_count;
-    --octave_offset;
-  }
-  while (major_scale_offset >= scale_count) {
-    major_scale_offset -= scale_count;
-    ++octave_offset;
-  }
-  float64 note =
-    float64(octave_offset) + float64(scale[major_scale_offset]) / 12.0;
-  float64 freq_hz = root_freq_hz * pow(2.0, note);
-  return freq_hz;
-}
 int main(int argc, char **argv) DOC("application entry point")
 {
   UNUSED_PARAMETER(argc);
@@ -483,40 +536,45 @@ int main(int argc, char **argv) DOC("application entry point")
   auto memory_size = 1024 * 1024 * 1024;
   auto memory = vm_alloc(memory_size);
   auto slab_allocator = make_slab_allocator(memory, memory_size);
-  s8 vive_le_vent[] = {
-    -2, -2, -2,     // m01
-    -2, -2, -2,     // m02
-    -2, 0,  -4, -3, // m03
-    -2,             // m4
-    -1, -1, -1,     // m05
-    -2, -2, -2,     // m06
-    -2, -3, -3, -2, // m07
-    -3, 0,          // m08
-    -2, -2, -2,     // m09
-    -2, -2, -2,     // m10
-    -2, 0,  -4, -3, // m11
-    -2,             // m12
-    -1, -1, -1,     // m13
-    -2, -2, -2,     // m14
-    0,  0,  -1, -3, // m15
-    -4,             // m16
+  s8 vive_le_vent_G[] = {
+    2, 2, 2,    // m01
+    2, 2, 2,    // m02
+    2, 4, 0, 1, // m03
+    2,          // m4
+    3, 3, 3,    // m05
+    2, 2, 2,    // m06
+    2, 1, 1, 2, // m07
+    1, 4,       // m08
+    2, 2, 2,    // m09
+    2, 2, 2,    // m10
+    2, 4, 0, 1, // m11
+    2,          // m12
+    3, 3, 3,    // m13
+    2, 2, 2,    // m14
+    4, 4, 3, 1, // m15
+    0,          // m16
   };
-  static_assert(container_size(global_audio_samples) >=
-                  container_size(vive_le_vent),
-                "not enough samples");
-  auto first_scale_note = vive_le_vent;
-  u8 scale_note_count = container_size(vive_le_vent);
+  s8 frere_jacques_G[] = {
+    0, 1, 2, 0,       // m01
+    0, 1, 2, 0,       // m02
+    2, 3, 4,          // m03
+    2, 3, 4,          // m04
+    4, 5, 4, 3, 2, 0, // m05
+    4, 5, 4, 3, 2, 0, // m06
+    0, 0,             // m07
+    0, 0,             // m08
+  };
+  auto sequence = make_fixed_array_header(frere_jacques_G);
+  global_music_size = container_size(sequence);
+  global_music = reinterpret_cast<s8 *>(
+    alloc(&slab_allocator, SizeOf(s8) * container_size(sequence)));
+  copy_bounded(begin(sequence), container_size(sequence), global_music,
+               global_music_size);
   for_each_n(global_audio_samples, container_size(global_audio_samples),
              [&](audio_sample_header &header) {
                header = make_audio_sample(&slab_allocator, 48000 / 2.0, 48000);
-               float64 freq_hz;
-               if (scale_note_count > 0) {
-                 freq_hz = major_scale_freq_hz(440.0, source(first_scale_note));
-                 first_scale_note = successor(first_scale_note);
-                 --scale_note_count;
-               } else {
-                 freq_hz = 110.0;
-               }
+               float64 freq_hz = 440.0;
+               header.root_hz = freq_hz;
                fill_sample_with_sin(header, freq_hz);
              });
   query_ds4(0);
@@ -539,7 +597,7 @@ u8 bit_scan_reverse32(u32 x)
   return y;
 }
 #endif
-// Os
+// (Os)
 #if defined(OS_OSX)
 #include <unistd.h>    // for _exit
 #include <mach/mach.h> // for vm_allocate
@@ -561,7 +619,7 @@ void vm_free(memory_size size, memory_address address)
 #else
 #error "Unimplemented OS module"
 #endif
-// Micros
+// (Micros)
 #if defined(OS_OSX)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -569,5 +627,5 @@ void vm_free(memory_size size, memory_address address)
 #include "uu.micros/libs/glew/src/glew.c"
 #pragma clang diagnostic pop
 #endif
-// uu.ticks
+// (uu.ticks)
 #include "uu.ticks/src/render-debug-string/render-debug-string.cpp"
