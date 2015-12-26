@@ -28,14 +28,20 @@
 #define UNUSED_PARAMETER(x) ((void)x)
 // NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
 #define StaticArrayCount(array) (sizeof(array) / sizeof(*array))
+// Concepts
+#define MODELS(...)
+#define REQUIRES(...)
+#define Iterator typename
+#define Integral typename
+#define UnaryFunction typename
 // Word Types
 using u8 = unsigned char;
-using s8 = signed char;
 using u16 = unsigned short;
-using s16 = signed short;
 using u32 = unsigned int;
-using s32 = signed int;
 using u64 = unsigned long;
+using s8 = signed char;
+using s16 = signed short;
+using s32 = signed int;
 using s64 = signed long;
 using float32 = float;
 using float64 = double;
@@ -49,12 +55,24 @@ static_assert(sizeof(u64) == 8, "u64");
 static_assert(sizeof(s64) == 8, "s64");
 static_assert(sizeof(float32) == 4, "float32");
 static_assert(sizeof(float64) == 8, "float64");
-// Concepts
-#define MODELS(...)
-#define REQUIRES(...)
-#define Iterator typename
-#define Integral typename
-#define UnaryFunction typename
+// SizeOf
+#define SizeOf(x) sizeof(x)
+// PointerOf
+#define PointerOf(T) T *
+// DistanceType
+template <typename T> struct distance_type_impl {
+};
+template <typename T> struct distance_type_impl<PointerOf(T)> {
+  using type = u64;
+};
+#define DistanceType(T) typename distance_type_impl<T>::type
+// memory_address
+using memory_address = PointerOf(u8);
+using memory_size = DistanceType(memory_address);
+static_assert(SizeOf(memory_address) == SizeOf(memory_size),
+              "memory_size incorrect for architecture");
+// Array Type
+template <typename T, u64 N> constexpr u64 container_size(T(&)[N]) { return N; }
 // safe modular Integers
 #define Integer typename
 struct modular_integer_tag {
@@ -106,22 +124,6 @@ template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
 {
   return addition_less(x, addand, limit) || ((x + addand) == limit);
 }
-// SizeOf
-#define SizeOf(x) sizeof(x)
-// PointerOf
-#define PointerOf(T) T *
-// DistanceType
-template <typename T> struct distance_type_impl {
-};
-template <typename T> struct distance_type_impl<PointerOf(T)> {
-  using type = u64;
-};
-#define DistanceType(T) typename distance_type_impl<T>::type
-// memory_address
-using memory_address = PointerOf(u8);
-using memory_size = DistanceType(memory_address);
-static_assert(SizeOf(memory_address) == SizeOf(memory_size),
-              "memory_size incorrect for architecture");
 // Algorithms
 template <Integral I> bool zero(I x) { return x == I(0); }
 template <Integral I> I successor(I x) { return x + 1; }
@@ -322,7 +324,7 @@ struct audio_sample_header DOC("a clip of audio data")
   float32 *data;
   u32 data_size;
 };
-global_variable audio_sample_header global_audio_samples[7];
+global_variable audio_sample_header global_audio_samples[45];
 global_variable u8 global_audio_sample_index = 0;
 audio_sample_header get_audio_sample()
 {
@@ -375,7 +377,7 @@ void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
     global_events = global_events & (~GlobalEvents_PressedDown); // consume
     if (polyphony.free_voices == 0) {
       // NOTE(uucidl): steal oldest voice
-      polyphony.free_voices |= 1 << (StaticArrayCount(polyphony.voices) - 1);
+      polyphony.free_voices |= 1 << (container_size(polyphony.voices) - 1);
     }
     u8 free_voice_index = bit_scan_reverse32(polyphony.free_voices);
     auto voice = polyphony.voices + free_voice_index;
@@ -383,9 +385,9 @@ void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
     voice->phase = 0.0;
     polyphony.free_voices &= ~(1 << free_voice_index);
     global_audio_sample_index =
-      (global_audio_sample_index + 1) % StaticArrayCount(global_audio_samples);
+      (global_audio_sample_index + 1) % container_size(global_audio_samples);
   }
-  for (u32 voice_index = 0; voice_index < StaticArrayCount(polyphony.voices);
+  for (u32 voice_index = 0; voice_index < container_size(polyphony.voices);
        ++voice_index) {
     auto voice = polyphony.voices + voice_index;
     if ((polyphony.free_voices & (1 << voice_index)) == 0) {
@@ -453,6 +455,27 @@ void fill_sample_with_sin(audio_sample_header sample, double frequency_hz)
     phase = phase + phase_increment;
   }
 }
+extern "C" double pow(double m, double e);
+float64 major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
+{
+  u8 scale[] = {
+    0, 2, 4, 5, 7, 9, 11,
+  };
+  u8 scale_count = container_size(scale);
+  s8 octave_offset = 0;
+  while (major_scale_offset < 0) {
+    major_scale_offset += scale_count;
+    --octave_offset;
+  }
+  while (major_scale_offset >= scale_count) {
+    major_scale_offset -= scale_count;
+    ++octave_offset;
+  }
+  float64 note =
+    float64(octave_offset) + float64(scale[major_scale_offset]) / 12.0;
+  float64 freq_hz = root_freq_hz * pow(2.0, note);
+  return freq_hz;
+}
 int main(int argc, char **argv) DOC("application entry point")
 {
   UNUSED_PARAMETER(argc);
@@ -460,15 +483,41 @@ int main(int argc, char **argv) DOC("application entry point")
   auto memory_size = 1024 * 1024 * 1024;
   auto memory = vm_alloc(memory_size);
   auto slab_allocator = make_slab_allocator(memory, memory_size);
-  double freq_hz = 110.0;
-  for_each_n(global_audio_samples, StaticArrayCount(global_audio_samples),
+  s8 vive_le_vent[] = {
+    -2, -2, -2,     // m01
+    -2, -2, -2,     // m02
+    -2, 0,  -4, -3, // m03
+    -2,             // m4
+    -1, -1, -1,     // m05
+    -2, -2, -2,     // m06
+    -2, -3, -3, -2, // m07
+    -3, 0,          // m08
+    -2, -2, -2,     // m09
+    -2, -2, -2,     // m10
+    -2, 0,  -4, -3, // m11
+    -2,             // m12
+    -1, -1, -1,     // m13
+    -2, -2, -2,     // m14
+    0,  0,  -1, -3, // m15
+    -4,             // m16
+  };
+  static_assert(container_size(global_audio_samples) >=
+                  container_size(vive_le_vent),
+                "not enough samples");
+  auto first_scale_note = vive_le_vent;
+  u8 scale_note_count = container_size(vive_le_vent);
+  for_each_n(global_audio_samples, container_size(global_audio_samples),
              [&](audio_sample_header &header) {
                header = make_audio_sample(&slab_allocator, 48000 / 2.0, 48000);
-               fill_sample_with_sin(header, freq_hz);
-               freq_hz *= 3.0 / 2.0;
-               while (freq_hz >= 330.0) {
-                 freq_hz -= 220.0;
+               float64 freq_hz;
+               if (scale_note_count > 0) {
+                 freq_hz = major_scale_freq_hz(440.0, source(first_scale_note));
+                 first_scale_note = successor(first_scale_note);
+                 --scale_note_count;
+               } else {
+                 freq_hz = 110.0;
                }
+               fill_sample_with_sin(header, freq_hz);
              });
   query_ds4(0);
   runtime_init();
