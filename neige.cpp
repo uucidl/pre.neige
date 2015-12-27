@@ -38,6 +38,7 @@
 #define Iterator typename
 #define Integral typename
 #define UnaryFunction typename
+#define BinaryFunction typename
 // (Word Types)
 using u8 = unsigned char;
 using u16 = unsigned short;
@@ -95,6 +96,11 @@ template <typename T, memory_size N>
 PointerOf(T) begin(fixed_array_header<T, N> &x)
 {
   return &x[0];
+}
+template <typename T, memory_size N>
+PointerOf(T) end(fixed_array_header<T, N> &x)
+{
+  return begin(x) + container_size(x);
 }
 template <typename T, memory_size N>
 constexpr u64 container_size(fixed_array_header<T, N> const &)
@@ -164,6 +170,31 @@ REQUIRES(Domain(Op) == ValueType(InputIterator)) InputIterator
     n = predecessor(n);
   }
 
+  return first;
+}
+template <Iterator InputIterator, BinaryFunction P, UnaryFunction Op>
+REQUIRES(
+  Domain(Op) == ValueType(InputIterator) &&
+  HomogeneousFunction(P, ValueType(InputIterator)) &&
+  Domain(P) ==
+    ValueType(
+      InputIterator)) InputIterator for_each_adjacent(InputIterator first,
+                                                      InputIterator last,
+                                                      P equal, Op operation)
+  DOC(
+    "in [`first`,`last`) advance iterator `first` and apply `operation` on its "
+    "source as long as neighbours are equal according to `equal`")
+{
+  if (first != last) {
+    operation(source(first));
+    auto prev = first;
+    first = successor(first);
+    while (first != last && equal(source(prev), source(first))) {
+      operation(source(first));
+      prev = first;
+      first = successor(first);
+    }
+  }
   return first;
 }
 template <Iterator I0, Integral C0, Iterator I1, Integral C1>
@@ -279,6 +310,31 @@ enum GlobalEvents {
   GlobalEvents_PressedDown = 1 << 0,
 };
 global_variable u64 global_events = 0;
+struct audio_sample_header DOC("a clip of audio data")
+{
+  float64 start_time;
+  float64 end_time;
+  float64 data_rate_hz;
+  float64 root_hz; // tuning frequency in hz
+  float32 *data;
+  u32 data_size;
+};
+struct polyphonic_voice_header {
+  float64 phase;
+  float64 phase_speed;
+  audio_sample_header sample;
+};
+void make_voice(polyphonic_voice_header *voice, audio_sample_header sample)
+{
+  voice->phase = 0.0;
+  voice->phase_speed = 1.0;
+  voice->sample = sample;
+}
+struct polyphony_header {
+  u8 free_voices;
+  polyphonic_voice_header voices[8];
+};
+global_variable polyphony_header global_polyphony = {0x08, {}};
 void render_next_gl3(unsigned long long micros, Display display)
 {
   local_state vec3 rgb = {};
@@ -343,20 +399,24 @@ void render_next_gl3(unsigned long long micros, Display display)
                         display.framebuffer_width_px,
                         display.framebuffer_height_px);
     }
+    char free_voices[] = "XXXXXXXX";
+    for (u64 free_voices_index = 0; free_voices_index < SizeOf(free_voices) - 1;
+         ++free_voices_index) {
+      free_voices[free_voices_index] =
+        (global_polyphony.free_voices & (1 << free_voices_index)) ? 'X' : 'O';
+    }
+    draw_debug_string(0, 36, free_voices, 2, display.framebuffer_width_px,
+                      display.framebuffer_height_px);
   }
 }
-struct audio_sample_header DOC("a clip of audio data")
-{
-  float64 start_time;
-  float64 end_time;
-  float64 data_rate_hz;
-  float64 root_hz; // tuning frequency in hz
-  float32 *data;
-  u32 data_size;
+struct note_in_event {
+  u32 event_id;
+  s8 note_in_scale;
 };
 global_variable audio_sample_header global_audio_samples[1];
 global_variable u8 global_audio_sample_index = 0;
-global_variable s8 *global_music;
+global_variable u32 global_music_events_count = 0;
+global_variable note_in_event *global_music;
 global_variable u8 global_music_size;
 global_variable u8 global_music_index = 0;
 audio_sample_header get_audio_sample()
@@ -399,21 +459,6 @@ double mix_audio_sample(audio_sample_header audio_sample, double time,
   });
   return time;
 }
-struct polyphonic_voice_header {
-  float64 phase;
-  float64 phase_speed;
-  audio_sample_header sample;
-};
-void make_voice(polyphonic_voice_header *voice, audio_sample_header sample)
-{
-  voice->phase = 0.0;
-  voice->phase_speed = 1.0;
-  voice->sample = sample;
-}
-struct polyphony_header {
-  u8 free_voices;
-  polyphonic_voice_header voices[8];
-};
 u8 bit_scan_reverse32(u32 x);
 static_assert(FixedArrayCount(polyphony_header::voices) >=
                 8 * SizeOf(polyphony_header::free_voices),
@@ -442,28 +487,36 @@ float64 major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
 void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
                                   double *left, double *right)
 {
-  local_state polyphony_header polyphony = {0xff, {}};
   for_each_n(left, sample_count, [](double &sample) { sample = 0.0; });
   for_each_n(right, sample_count, [](double &sample) { sample = 0.0; });
   if (global_events & GlobalEvents_PressedDown) {
     global_events = global_events & (~GlobalEvents_PressedDown); // consume
-    if (polyphony.free_voices == 0) {
-      // NOTE(uucidl): steal oldest voice
-      polyphony.free_voices |= 1 << (container_size(polyphony.voices) - 1);
-    }
-    u8 free_voice_index = bit_scan_reverse32(polyphony.free_voices);
-    auto voice = polyphony.voices + free_voice_index;
-    make_voice(voice, get_audio_sample());
-    auto freq_hz = major_scale_freq_hz(440.0, global_music[global_music_index]);
-    voice->phase_speed =
-      freq_hz / voice->sample.root_hz * voice->sample.data_rate_hz / 48000.0;
-    polyphony.free_voices &= ~(1 << free_voice_index);
-    global_music_index = (global_music_index + 1) % global_music_size;
+    auto first_note = global_music + global_music_index;
+    auto last_note = global_music + global_music_size;
+    for_each_adjacent(
+      first_note, last_note,
+      [](note_in_event a, note_in_event b) { return a.event_id == b.event_id; },
+      [&](note_in_event note) {
+        if (global_polyphony.free_voices == 0) {
+          // NOTE(uucidl): steals oldest voice
+          global_polyphony.free_voices |=
+            1 << (container_size(global_polyphony.voices) - 1);
+        }
+        u8 free_voice_index = bit_scan_reverse32(global_polyphony.free_voices);
+        auto note_in_scale = note.note_in_scale;
+        auto voice = global_polyphony.voices + free_voice_index;
+        make_voice(voice, get_audio_sample());
+        auto freq_hz = major_scale_freq_hz(440.0, note_in_scale);
+        voice->phase_speed = freq_hz / voice->sample.root_hz *
+                             voice->sample.data_rate_hz / 48000.0;
+        global_polyphony.free_voices &= ~(1 << free_voice_index);
+        global_music_index = (global_music_index + 1) % global_music_size;
+      });
   }
-  for (u32 voice_index = 0; voice_index < container_size(polyphony.voices);
-       ++voice_index) {
-    auto voice = polyphony.voices + voice_index;
-    if ((polyphony.free_voices & (1 << voice_index)) == 0) {
+  for (u32 voice_index = 0;
+       voice_index < container_size(global_polyphony.voices); ++voice_index) {
+    auto voice = global_polyphony.voices + voice_index;
+    if ((global_polyphony.free_voices & (1 << voice_index)) == 0) {
       auto sample = voice->sample;
       auto phase = voice->phase;
       auto phase_speed = voice->phase_speed;
@@ -472,7 +525,7 @@ void render_next_2chn_48khz_audio(unsigned long long, int sample_count,
         voice->phase =
           mix_audio_sample(sample, phase, phase_speed, right, sample_count);
       } else if (phase >= sample.end_time) {
-        polyphony.free_voices = 1 << voice_index; // free the voice
+        global_polyphony.free_voices |= 1 << voice_index; // free the voice
       }
     }
   }
@@ -504,6 +557,15 @@ void free(slab_allocator *slab_allocator, memory_address start,
   fatal_ifnot(start == slab_allocator->unallocated_start - size);
   slab_allocator->unallocated_start = start;
 }
+template <typename T>
+void alloc_array(PointerOf(slab_allocator) slab_allocator, memory_size count,
+                 PointerOf(PointerOf(T)) dest_pointer_output)
+  DOC("allocate enough room for a contiguous array and copy it to "
+      "`dest_pointer_output`")
+{
+  sink(dest_pointer_output) =
+    reinterpret_cast<PointerOf(T)>(alloc(slab_allocator, SizeOf(T) * count));
+}
 audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
                                       u32 sample_count, float64 data_rate_hz)
 {
@@ -512,8 +574,7 @@ audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
   header.end_time = sample_count;
   header.data_rate_hz = data_rate_hz;
   header.data_size = sample_count;
-  header.data = reinterpret_cast<float32 *>(
-    alloc(slab_allocator, SizeOf(float32) * header.data_size));
+  alloc_array(slab_allocator, header.data_size, &header.data);
   return header;
 }
 URL("http://www.intel.com/content/www/us/en/processors/"
@@ -536,6 +597,7 @@ int main(int argc, char **argv) DOC("application entry point")
   auto memory_size = 1024 * 1024 * 1024;
   auto memory = vm_alloc(memory_size);
   auto slab_allocator = make_slab_allocator(memory, memory_size);
+  u32 vive_le_vent_next_event_id = 0;
   s8 vive_le_vent_G[] = {
     2, 2, 2,    // m01
     2, 2, 2,    // m02
@@ -554,22 +616,109 @@ int main(int argc, char **argv) DOC("application entry point")
     4, 4, 3, 1, // m15
     0,          // m16
   };
-  s8 frere_jacques_G[] = {
-    0, 1, 2, 0,       // m01
-    0, 1, 2, 0,       // m02
-    2, 3, 4,          // m03
-    2, 3, 4,          // m04
-    4, 5, 4, 3, 2, 0, // m05
-    4, 5, 4, 3, 2, 0, // m06
-    0, 0,             // m07
-    0, 0,             // m08
+  u32 frere_jacques_next_event_id = 0;
+#define STEP (frere_jacques_next_event_id++)
+#define SAME (frere_jacques_next_event_id)
+#define C_1 (-7)
+#define D_1 (-6)
+#define E_1 (-5)
+#define F_1 (-4)
+#define G_1 (-3)
+#define A_1 (-2)
+#define B_1 (-1)
+#define C (0)
+#define D (1)
+#define E (2)
+#define F (3)
+#define G (4)
+#define A (5)
+#define B (6)
+  note_in_event frere_jacques_G[] = {
+    // m00
+    {STEP, C},
+    {STEP, D},
+    {STEP, E},
+    {STEP, C},
+    // m01
+    {STEP, C},
+    {STEP, D},
+    {STEP, E},
+    {STEP, C},
+    // m02
+    {SAME, C_1},
+    {STEP, E},
+    {SAME, D_1},
+    {STEP, F},
+    {SAME, E_1},
+    {STEP, G},
+    {STEP, C_1},
+    // m03
+    {SAME, C_1},
+    {STEP, E},
+    {SAME, D_1},
+    {STEP, F},
+    {SAME, E_1},
+    {STEP, G},
+    {STEP, C_1},
+    // m04
+    {SAME, E_1},
+    {STEP, G},
+    {SAME, F_1},
+    {STEP, G},
+    {SAME, F_1},
+    {STEP, G},
+    {STEP, F},
+    {SAME, G_1},
+    {STEP, E},
+    {STEP, C},
+    // m05
+    {SAME, E_1},
+    {STEP, G},
+    {SAME, F_1},
+    {STEP, A},
+    {SAME, F_1},
+    {STEP, G},
+    {STEP, F},
+    {SAME, G_1},
+    {STEP, E},
+    {STEP, C},
+    // m06
+    {SAME, E_1},
+    {STEP, C},
+    {SAME, G_1},
+    {STEP, F_1},
+    {SAME, E_1},
+    {STEP, C},
+    // m07
+    {SAME, E_1},
+    {STEP, C},
+    {SAME, G_1},
+    {STEP, F_1},
+    {SAME, E_1},
+    {STEP, C},
   };
+#undef STEP
+#undef SAME
   auto sequence = make_fixed_array_header(frere_jacques_G);
+  auto sequence_next_event_id = frere_jacques_next_event_id;
   global_music_size = container_size(sequence);
-  global_music = reinterpret_cast<s8 *>(
-    alloc(&slab_allocator, SizeOf(s8) * container_size(sequence)));
+  global_music_events_count = sequence_next_event_id;
+  alloc_array(&slab_allocator, container_size(sequence), &global_music);
   copy_bounded(begin(sequence), container_size(sequence), global_music,
                global_music_size);
+  {
+    auto first_note = begin(sequence);
+    auto const last_note = end(sequence);
+    while (first_note != last_note) {
+      first_note = for_each_adjacent(
+        first_note, last_note,
+        [](note_in_event a, note_in_event b) {
+          return a.event_id == b.event_id;
+        },
+        [](note_in_event note) { printf("\tnote: %d\n", note.note_in_scale); });
+      printf("----\n");
+    }
+  }
   for_each_n(global_audio_samples, container_size(global_audio_samples),
              [&](audio_sample_header &header) {
                header = make_audio_sample(&slab_allocator, 48000 / 2.0, 48000);
