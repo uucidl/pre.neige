@@ -7,3 +7,6 @@
 [submodule "uu.ticks"]
 	path = uu.ticks
 	url = git@github.com:uucidl/uu.ticks.git
+[submodule "nanovg"]
+	path = nanovg
+	url = git@github.com:memononen/nanovg.git
