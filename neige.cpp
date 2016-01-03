@@ -98,7 +98,7 @@ void vm_free(memory_size size, memory_address data)
 // (Concepts)
 #define MODELS(...)
 #define REQUIRES(...)
-#define IteratorConcept typename
+#define OrdinateConcept typename
 #define IntegralConcept typename
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
@@ -184,10 +184,10 @@ template <typename T> memory_address AddressOf(T &x)
 {
   return memory_address(&x);
 }
-template <IteratorConcept InputIteratorConcept, IntegralConcept I,
+template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputIteratorConcept)) InputIteratorConcept
-  for_each_n(InputIteratorConcept first, I n, Op operation)
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+  for_each_n(InputOrdinateConcept first, I n, Op operation)
     DOC("for `n` times, advance iterator `first` and apply `operation` on its "
         "source")
 {
@@ -199,12 +199,12 @@ REQUIRES(Domain(Op) == ValueType(InputIteratorConcept)) InputIteratorConcept
 
   return first;
 }
-template <IteratorConcept InputIteratorConcept, BinaryFunctionConcept P,
+template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
           UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputIteratorConcept) &&
-         HomogeneousFunction(P, ValueType(InputIteratorConcept)) &&
-         Domain(P) == ValueType(InputIteratorConcept)) InputIteratorConcept
-  for_each_adjacent(InputIteratorConcept first, InputIteratorConcept last,
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
+         HomogeneousFunction(P, ValueType(InputOrdinateConcept)) &&
+         Domain(P) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+  for_each_adjacent(InputOrdinateConcept first, InputOrdinateConcept last,
                     P equal, Op operation)
     DOC("in [`first`,`last`) advance iterator `first` and apply `operation` on "
         "its "
@@ -222,7 +222,7 @@ REQUIRES(Domain(Op) == ValueType(InputIteratorConcept) &&
   }
   return first;
 }
-template <IteratorConcept I0, IntegralConcept C0, IteratorConcept I1,
+template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1,
           IntegralConcept C1>
 REQUIRES(ValueType(I0) == ValueType(I1)) void copy_bounded(I0 from,
                                                            C0 from_size, I1 to,
