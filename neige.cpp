@@ -369,6 +369,9 @@ struct DS4Out DOC("Output message for wired connection")
 };
 #pragma pack(pop)
 #include "hidapi/hidapi/hidapi.h"
+// (Cpu)
+float64 cpu_sin(float64 x);
+float64 cpu_sqrt(float64 x);
 // (Main)
 #include "nanovg/src/nanovg.h"
 #include "uu.micros/include/micros/api.h"
@@ -399,6 +402,14 @@ hid_device *query_ds4(u64 micros)
   return global_optional_ds4;
 }
 struct vec3 MODELS(Regular) { float32 x, y, z; };
+bool equality(vec3 a, vec3 b)
+{
+  return a.x == b.y && a.y == b.y && a.z == b.z;
+};
+bool default_order(vec3 a, vec3 b)
+{
+  return a.x < b.x ? true : a.y < b.y ? true : a.z < b.z;
+}
 vec3 addition(vec3 a, vec3 b)
 {
   vec3 result;
@@ -407,13 +418,12 @@ vec3 addition(vec3 a, vec3 b)
   result.z = a.z + b.z;
   return result;
 }
-bool equality(vec3 a, vec3 b)
+float32 euclidean_norm(vec3 v)
 {
-  return a.x == b.y && a.y == b.y && a.z == b.z;
-};
-bool default_order(vec3 a, vec3 b)
-{
-  return a.x < b.x ? true : a.y < b.y ? true : a.z < b.z;
+  float32 xx = v.x * v.x;
+  float32 yy = v.y * v.y;
+  float32 zz = v.z * v.z;
+  return cpu_sqrt(xx + yy + zz);
 }
 template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
 template <typename T> bool operator==(T a, T b) { return equality(a, b); }
@@ -533,38 +543,88 @@ void render_next_gl3(unsigned long long micros, Display display)
   }
   DOC("main effect")
   {
-    struct vine_header {
+    struct vine_segment_header {
       vec3 stem_start;
       vec3 growth;
       counted_range<vec3, memory_size> path_storage;
       memory_size last_path;
+      float32 bifurcation_threshold;
+      float32 energy_spent;
     };
-    auto allocate_vine = [](slab_allocator *allocator, vec3 start, vec3 growth,
-                            memory_size max_path_size) {
-      vine_header result;
-      result.stem_start = start;
-      result.growth = growth;
-      alloc_array(allocator, max_path_size, &result.path_storage);
-      sink(at(result.path_storage, 0)) = result.stem_start;
-      result.last_path = 1;
-      return result;
+    struct vine_header {
+      counted_range<vine_segment_header, memory_size> segment_storage;
+      memory_size last_segment;
     };
+    auto allocate_vine_segment =
+      [](slab_allocator *allocator, memory_size max_path_size) {
+        vine_segment_header result;
+        alloc_array(allocator, max_path_size, &result.path_storage);
+        return result;
+      };
+    auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth) {
+      auto &y = sink(dest);
+      y.stem_start = start;
+      y.growth = growth;
+      sink(at(y.path_storage, 0)) = y.stem_start;
+      y.last_path = 1;
+      y.energy_spent = 0.0;
+      y.bifurcation_threshold = 0.6;
+    };
+    auto push_segment = [=](vine_header *dest, vec3 start, vec3 growth) {
+      auto &y = sink(dest);
+      if (addition_less(y.last_segment, memory_size(1),
+                        container_size(y.segment_storage))) {
+        auto &segment = sink(at(y.segment_storage, y.last_segment));
+        init_segment(&segment, start, growth);
+        ++y.last_segment;
+      }
+    };
+    auto allocate_vine =
+      [=](slab_allocator *allocator, memory_size max_segment_size, vec3 start,
+          vec3 growth, memory_size max_path_size) {
+        vine_header result;
+        alloc_array(allocator, max_segment_size, &result.segment_storage);
+        for_each_n(begin(result.segment_storage),
+                   container_size(result.segment_storage),
+                   [&](vine_segment_header &y) {
+                     y = allocate_vine_segment(allocator, max_path_size);
+                   });
+        result.last_segment = 0;
+        push_segment(&result, start, growth);
+        return result;
+      };
     auto simulation_points_per_second = 60.0;
     local_state vine_header vine =
-      allocate_vine(&main_memory.allocator, {-7.6, -5.8, 0},
+      allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                     {float32(10.0 / simulation_points_per_second),
                      float32(6.0 / simulation_points_per_second), 0.0},
                     6 * simulation_points_per_second);
     // grow vines
-    {
-      if (addition_less(vine.last_path, memory_size(1),
-                        container_size(vine.path_storage))) {
-        auto index = vine.last_path;
-        sink(at(vine.path_storage, index)) =
-          source(at(vine.path_storage, index - 1)) + vine.growth;
-        ++vine.last_path;
-      }
-    }
+    for_each_n(begin(vine.segment_storage), vine.last_segment,
+               [&](vine_segment_header &segment) {
+                 if (addition_less(segment.last_path, memory_size(1),
+                                   container_size(segment.path_storage))) {
+                   auto index = segment.last_path;
+                   auto growth = segment.growth;
+                   vec3 tip =
+                     source(at(segment.path_storage, index - 1)) + growth;
+                   sink(at(segment.path_storage, index)) = tip;
+                   float growth_cost_j_per_cm = 0.1;
+                   segment.energy_spent +=
+                     growth_cost_j_per_cm * euclidean_norm(growth);
+                   ++segment.last_path;
+
+                   if (segment.energy_spent >= segment.bifurcation_threshold) {
+                     // bifurcate!
+                     segment.energy_spent = 0;
+                     auto g = segment.growth;
+                     auto temp = g.y;
+                     g.y = g.x;
+                     g.x = temp;
+                     push_segment(&vine, tip, g);
+                   }
+                 }
+               });
     // draw vines
     local_state auto vg = nvg_create_context();
     glClear(GL_STENCIL_BUFFER_BIT);
@@ -579,13 +639,23 @@ void render_next_gl3(unsigned long long micros, Display display)
       nvgScale(vg, cm_to_display, -cm_to_display);
       nvgBeginPath(vg);
       // for now just draw the vine as a series of dots
-      auto dot_radius = 0.2;
-      nvgCircle(vg, vine.stem_start.x, vine.stem_start.y, dot_radius);
-      for_each_n(begin(vine.path_storage), vine.last_path,
-                 [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
+      auto dot_radius = 0.07;
+      for_each_n(begin(vine.segment_storage), vine.last_segment,
+                 [&](vine_segment_header segment) {
+                   for_each_n(
+                     begin(segment.path_storage), segment.last_path,
+                     [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
+                 });
       nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
       nvgFill(vg);
-
+      nvgBeginPath(vg);
+      nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
+      for_each_n(begin(vine.segment_storage), vine.last_segment,
+                 [&](vine_segment_header segment) {
+                   nvgCircle(vg, segment.stem_start.x, segment.stem_start.y,
+                             dot_radius);
+                 });
+      nvgFill(vg);
       nvgEndFrame(vg);
     }
   }
@@ -756,7 +826,6 @@ audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
 }
 URL("http://www.intel.com/content/www/us/en/processors/"
     "architectures-software-developer-manuals.html")
-double cpu_sin(double x);
 void fill_sample_with_sin(audio_sample_header sample, double frequency_hz)
 {
   float64 const PI = 3.141592653589793238463;
@@ -908,10 +977,22 @@ int main(int argc, char **argv) DOC("application entry point")
 }
 // (CPU)
 #if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
-double cpu_sin(double x)
+float64 cpu_sin(float64 x)
 {
-  double y;
-  asm("fld %0\nfsin" : "=t"(y) : "f"(x));
+  float64 y;
+  asm("fld %0\n"
+      "fsin"
+      : "=t"(y)
+      : "f"(x));
+  return y;
+}
+float64 cpu_sqrt(float64 x)
+{
+  float64 y;
+  asm("fld %0\n"
+      "fsqrt"
+      : "=t"(y)
+      : "f"(x));
   return y;
 }
 u8 bit_scan_reverse32(u32 x)
