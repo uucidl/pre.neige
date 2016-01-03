@@ -41,6 +41,7 @@
 #define debugger_break() DOC("invoke debugger") asm("int3")
 #define global_variable DOC("mark global variables") static
 #define local_state DOC("mark locally persistent variables") static
+#define internal_symbol DOC("mark internal symbols") static
 #define UNUSED_PARAMETER(x) ((void)x)
 // NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
 #define FixedArrayCount(array) (sizeof(array) / sizeof(*array))
@@ -374,6 +375,7 @@ float64 cpu_sin(float64 x);
 float64 cpu_sqrt(float64 x);
 // (Main)
 #include "nanovg/src/nanovg.h"
+#include "neige_random.hpp"
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
