@@ -187,10 +187,10 @@ template <typename T> memory_address AddressOf(T &x)
 }
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
-  for_each_n(InputOrdinateConcept first, I n, Op operation)
-    DOC("for `n` times, advance iterator `first` and apply `operation` on its "
-        "source")
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
+InputOrdinateConcept for_each_n(InputOrdinateConcept first, I n, Op operation)
+  DOC("for `n` times, advance iterator `first` and apply `operation` on its "
+      "source")
 {
   while (!zero(n)) {
     operation(source(first));
@@ -204,7 +204,8 @@ template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
           UnaryFunctionConcept Op>
 REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
          HomogeneousFunction(P, ValueType(InputOrdinateConcept)) &&
-         Domain(P) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+         Domain(P) == ValueType(InputOrdinateConcept))
+InputOrdinateConcept
   for_each_adjacent(InputOrdinateConcept first, InputOrdinateConcept last,
                     P equal, Op operation)
     DOC("in [`first`,`last`) advance iterator `first` and apply `operation` on "
@@ -225,9 +226,8 @@ REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
 }
 template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1,
           IntegralConcept C1>
-REQUIRES(ValueType(I0) == ValueType(I1)) void copy_bounded(I0 from,
-                                                           C0 from_size, I1 to,
-                                                           C1 to_size)
+REQUIRES(ValueType(I0) == ValueType(I1)) void copy_n_m(I0 from, C0 from_size,
+                                                       I1 to, C1 to_size)
 {
   while (from_size > 0 && to_size > 0) {
     sink(to) = source(from);
@@ -236,6 +236,19 @@ REQUIRES(ValueType(I0) == ValueType(I1)) void copy_bounded(I0 from,
     --from_size;
     --to_size;
   }
+}
+template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1>
+REQUIRES(ValueType(I0) == ValueType(I1))
+// TODO(nicolas): should actually return a pair
+I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
+{
+  while (from_size > 0 && to != to_last) {
+    sink(to) = source(from);
+    from = successor(from);
+    to = successor(to);
+    --from_size;
+  }
+  return to;
 }
 // (Memory Allocation)
 template <typename T, IntegralConcept I> struct counted_range {
@@ -362,8 +375,7 @@ struct DS4 {
 #pragma pack(push, 1)
 struct DS4Out DOC("Output message for wired connection")
   URL("https://github.com/chrippa/ds4drv/blob/master/ds4drv/device.py",
-      "wireless example")
-{
+      "wireless example") {
   u32 magic;
   u8 rumbler, rumblel, r, g, b, flashon, flashoff;
   u8 pad[32 - 11];
@@ -403,7 +415,9 @@ hid_device *query_ds4(u64 micros)
   }
   return global_optional_ds4;
 }
-struct vec3 MODELS(Regular) { float32 x, y, z; };
+struct vec3 MODELS(Regular) {
+  float32 x, y, z;
+};
 bool equality(vec3 a, vec3 b)
 {
   return a.x == b.y && a.y == b.y && a.z == b.z;
@@ -437,8 +451,7 @@ enum GlobalEvents : u64 {
   GlobalEvents_PressedDown = 1 << 0,
 };
 global_variable u64 global_events = 0;
-struct audio_sample_header DOC("a clip of audio data")
-{
+struct audio_sample_header DOC("a clip of audio data") {
   float64 start_time;
   float64 end_time;
   float64 data_rate_hz;
@@ -466,6 +479,7 @@ struct MainMemory {
 };
 struct TransientMemory {
   slab_allocator allocator;
+  slab_allocator frame_allocator;
 };
 global_variable struct TransientMemory transient_memory;
 global_variable struct MainMemory main_memory;
@@ -542,6 +556,24 @@ void render_next_gl3(unsigned long long micros, Display display)
     }
     draw_debug_string(0, 36, free_voices, 2, display.framebuffer_width_px,
                       display.framebuffer_height_px);
+    local_state u64 last_micros = micros;
+    DOC("display framerate") {
+      counted_range<char, memory_size> framerate_str;
+      alloc_array(&transient_memory.frame_allocator, memory_size(1024),
+                  &framerate_str);
+      auto last = framerate_str.first;
+      last = copy_n_bounded("Period: ", 8, last, end(framerate_str));
+      auto n = snprintf(last, end(framerate_str) - last, "%f",
+                        (micros - last_micros) / 1000.0);
+      if (n > 0) {
+        last += n;
+      }
+      sink(last) = 0;
+      draw_debug_string(0, 72, begin(framerate_str), 1,
+                        display.framebuffer_width_px,
+                        display.framebuffer_height_px);
+    }
+    last_micros = micros;
   }
   DOC("main effect")
   {
@@ -557,12 +589,12 @@ void render_next_gl3(unsigned long long micros, Display display)
       counted_range<vine_segment_header, memory_size> segment_storage;
       memory_size last_segment;
     };
-    auto allocate_vine_segment =
-      [](slab_allocator *allocator, memory_size max_path_size) {
-        vine_segment_header result;
-        alloc_array(allocator, max_path_size, &result.path_storage);
-        return result;
-      };
+    auto allocate_vine_segment = [](slab_allocator *allocator,
+                                    memory_size max_path_size) {
+      vine_segment_header result;
+      alloc_array(allocator, max_path_size, &result.path_storage);
+      return result;
+    };
     auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
                            float32 bifurcation_threshold) {
       auto &y = sink(dest);
@@ -573,18 +605,18 @@ void render_next_gl3(unsigned long long micros, Display display)
       y.energy_spent = 0.0;
       y.bifurcation_threshold = bifurcation_threshold;
     };
-    auto push_segment =
-      [=](vine_header *dest) -> PointerOf(vine_segment_header) {
-        auto &y = sink(dest);
-        if (addition_less(y.last_segment, memory_size(1),
-                          container_size(y.segment_storage))) {
-          auto &segment = sink(at(y.segment_storage, y.last_segment));
-          ++y.last_segment;
-          return &segment;
-        } else {
-          return nullptr;
-        }
-      };
+    auto push_segment = [=](vine_header *dest) -> PointerOf(
+      vine_segment_header) {
+      auto &y = sink(dest);
+      if (addition_less(y.last_segment, memory_size(1),
+                        container_size(y.segment_storage))) {
+        auto &segment = sink(at(y.segment_storage, y.last_segment));
+        ++y.last_segment;
+        return &segment;
+      } else {
+        return nullptr;
+      }
+    };
     auto allocate_vine = [=](
       slab_allocator *allocator, memory_size max_segment_size, vec3 start,
       vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
@@ -604,7 +636,7 @@ void render_next_gl3(unsigned long long micros, Display display)
     };
     auto simulation_points_per_second = 60.0;
     local_state vine_header vine =
-      allocate_vine(&main_memory.allocator, 64, {-7.6, -5.8, 0},
+      allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                     {float32(10.0 / simulation_points_per_second),
                      float32(6.0 / simulation_points_per_second), 0.0},
                     0.6, 6 * simulation_points_per_second);
@@ -646,7 +678,7 @@ void render_next_gl3(unsigned long long micros, Display display)
                     int(display.framebuffer_height_px),
                     1.0); // should be 2.0 on retina
       nvgReset(vg);
-      auto cm_to_display = display.framebuffer_width_px / 30.0;
+      auto cm_to_display = display.framebuffer_width_px / 20.0;
       nvgTranslate(vg, display.framebuffer_width_px / 2.0,
                    display.framebuffer_height_px / 2.0);
       nvgScale(vg, cm_to_display, -cm_to_display);
@@ -859,6 +891,11 @@ int main(int argc, char **argv) DOC("application entry point")
   auto transient_memory_size = memory_size(64 * 1024 * 1024);
   transient_memory.allocator = make_slab_allocator(
     alloc(&all_allocator, transient_memory_size), transient_memory_size);
+  counted_range<u8, memory_size> frame_memory_block;
+  alloc_array(&transient_memory.allocator, memory_size(8 * 1024 * 1024),
+              &frame_memory_block);
+  transient_memory.frame_allocator =
+    make_slab_allocator(frame_memory_block.first, frame_memory_block.count);
   auto main_memory_size = allocatable_size(&all_allocator);
   main_memory.allocator = make_slab_allocator(
     alloc(&all_allocator, main_memory_size), main_memory_size);
@@ -1042,7 +1079,6 @@ void vm_free(memory_size size, memory_address address)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 #pragma clang diagnostic ignored "-Wsign-conversion"
-#include "uu.micros/libs/glew/src/glew.c"
 #include "uu.micros/runtime/darwin_runtime.cpp"
 #pragma clang diagnostic pop
 #endif
