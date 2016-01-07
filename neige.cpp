@@ -10,7 +10,7 @@
 /*
   Jump to (Main) to find the program.
   TAG(project)
-   - TODO(nicolas): chords
+   - TODO(nicolas): follow "center" of vine
    - TODO(nicolas): load sample
  */
 // (Platform Configuration)
@@ -563,44 +563,51 @@ void render_next_gl3(unsigned long long micros, Display display)
         alloc_array(allocator, max_path_size, &result.path_storage);
         return result;
       };
-    auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth) {
+    auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
+                           float32 bifurcation_threshold) {
       auto &y = sink(dest);
       y.stem_start = start;
       y.growth = growth;
       sink(at(y.path_storage, 0)) = y.stem_start;
       y.last_path = 1;
       y.energy_spent = 0.0;
-      y.bifurcation_threshold = 0.6;
+      y.bifurcation_threshold = bifurcation_threshold;
     };
-    auto push_segment = [=](vine_header *dest, vec3 start, vec3 growth) {
-      auto &y = sink(dest);
-      if (addition_less(y.last_segment, memory_size(1),
-                        container_size(y.segment_storage))) {
-        auto &segment = sink(at(y.segment_storage, y.last_segment));
-        init_segment(&segment, start, growth);
-        ++y.last_segment;
-      }
-    };
-    auto allocate_vine =
-      [=](slab_allocator *allocator, memory_size max_segment_size, vec3 start,
-          vec3 growth, memory_size max_path_size) {
-        vine_header result;
-        alloc_array(allocator, max_segment_size, &result.segment_storage);
-        for_each_n(begin(result.segment_storage),
-                   container_size(result.segment_storage),
-                   [&](vine_segment_header &y) {
-                     y = allocate_vine_segment(allocator, max_path_size);
-                   });
-        result.last_segment = 0;
-        push_segment(&result, start, growth);
-        return result;
+    auto push_segment =
+      [=](vine_header *dest) -> PointerOf(vine_segment_header) {
+        auto &y = sink(dest);
+        if (addition_less(y.last_segment, memory_size(1),
+                          container_size(y.segment_storage))) {
+          auto &segment = sink(at(y.segment_storage, y.last_segment));
+          ++y.last_segment;
+          return &segment;
+        } else {
+          return nullptr;
+        }
       };
+    auto allocate_vine = [=](
+      slab_allocator *allocator, memory_size max_segment_size, vec3 start,
+      vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+      vine_header result;
+      alloc_array(allocator, max_segment_size, &result.segment_storage);
+      for_each_n(begin(result.segment_storage),
+                 container_size(result.segment_storage),
+                 [&](vine_segment_header &y) {
+                   y = allocate_vine_segment(allocator, max_path_size);
+                 });
+      result.last_segment = 0;
+      auto segment_ptr = push_segment(&result);
+      if (segment_ptr) {
+        init_segment(segment_ptr, start, growth, bifurcation_threshold);
+      }
+      return result;
+    };
     auto simulation_points_per_second = 60.0;
     local_state vine_header vine =
-      allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
+      allocate_vine(&main_memory.allocator, 64, {-7.6, -5.8, 0},
                     {float32(10.0 / simulation_points_per_second),
                      float32(6.0 / simulation_points_per_second), 0.0},
-                    6 * simulation_points_per_second);
+                    0.6, 6 * simulation_points_per_second);
     // grow vines
     for_each_n(begin(vine.segment_storage), vine.last_segment,
                [&](vine_segment_header &segment) {
@@ -623,7 +630,11 @@ void render_next_gl3(unsigned long long micros, Display display)
                      auto temp = g.y;
                      g.y = g.x;
                      g.x = temp;
-                     push_segment(&vine, tip, g);
+                     auto segment_ptr = push_segment(&vine);
+                     if (segment_ptr) {
+                       init_segment(segment_ptr, tip, g,
+                                    segment.bifurcation_threshold * 1.15);
+                     }
                    }
                  }
                });
@@ -635,7 +646,7 @@ void render_next_gl3(unsigned long long micros, Display display)
                     int(display.framebuffer_height_px),
                     1.0); // should be 2.0 on retina
       nvgReset(vg);
-      auto cm_to_display = display.framebuffer_width_px / 20.0;
+      auto cm_to_display = display.framebuffer_width_px / 30.0;
       nvgTranslate(vg, display.framebuffer_width_px / 2.0,
                    display.framebuffer_height_px / 2.0);
       nvgScale(vg, cm_to_display, -cm_to_display);
