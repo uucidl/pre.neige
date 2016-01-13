@@ -187,10 +187,10 @@ template <typename T> memory_address AddressOf(T &x)
 }
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
-InputOrdinateConcept for_each_n(InputOrdinateConcept first, I n, Op operation)
-  DOC("for `n` times, advance iterator `first` and apply `operation` on its "
-      "source")
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+  for_each_n(InputOrdinateConcept first, I n, Op operation)
+    DOC("for `n` times, advance iterator `first` and apply `operation` on its "
+        "source")
 {
   while (!zero(n)) {
     operation(source(first));
@@ -204,8 +204,7 @@ template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
           UnaryFunctionConcept Op>
 REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
          HomogeneousFunction(P, ValueType(InputOrdinateConcept)) &&
-         Domain(P) == ValueType(InputOrdinateConcept))
-InputOrdinateConcept
+         Domain(P) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
   for_each_adjacent(InputOrdinateConcept first, InputOrdinateConcept last,
                     P equal, Op operation)
     DOC("in [`first`,`last`) advance iterator `first` and apply `operation` on "
@@ -239,8 +238,8 @@ REQUIRES(ValueType(I0) == ValueType(I1)) void copy_n_m(I0 from, C0 from_size,
 }
 template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1>
 REQUIRES(ValueType(I0) == ValueType(I1))
-// TODO(nicolas): should actually return a pair
-I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
+  // TODO(nicolas): should actually return a pair
+  I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
 {
   while (from_size > 0 && to != to_last) {
     sink(to) = source(from);
@@ -375,7 +374,8 @@ struct DS4 {
 #pragma pack(push, 1)
 struct DS4Out DOC("Output message for wired connection")
   URL("https://github.com/chrippa/ds4drv/blob/master/ds4drv/device.py",
-      "wireless example") {
+      "wireless example")
+{
   u32 magic;
   u8 rumbler, rumblel, r, g, b, flashon, flashoff;
   u8 pad[32 - 11];
@@ -384,6 +384,7 @@ struct DS4Out DOC("Output message for wired connection")
 #include "hidapi/hidapi/hidapi.h"
 // (Cpu)
 float64 cpu_sin(float64 x);
+float64 cpu_cos(float64 x);
 float64 cpu_sqrt(float64 x);
 // (Main)
 #include "nanovg/src/nanovg.h"
@@ -415,9 +416,10 @@ hid_device *query_ds4(u64 micros)
   }
   return global_optional_ds4;
 }
-struct vec3 MODELS(Regular) {
-  float32 x, y, z;
-};
+struct vec3 MODELS(Regular) { float32 x, y, z; };
+vec3 make_vec3(float32 v) { return {v, v, v}; }
+vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
+vec3 make_vec3(float32 x, float32 y, float32 z) { return {x, y, z}; }
 bool equality(vec3 a, vec3 b)
 {
   return a.x == b.y && a.y == b.y && a.z == b.z;
@@ -434,6 +436,10 @@ vec3 addition(vec3 a, vec3 b)
   result.z = a.z + b.z;
   return result;
 }
+vec3 multiplication(vec3 vector, float32 scalar)
+{
+  return vec3{vector.x * scalar, vector.y * scalar, vector.z * scalar};
+}
 float32 euclidean_norm(vec3 v)
 {
   float32 xx = v.x * v.x;
@@ -441,6 +447,15 @@ float32 euclidean_norm(vec3 v)
   float32 zz = v.z * v.z;
   return cpu_sqrt(xx + yy + zz);
 }
+vec3 operator*(vec3 vector, float32 scalar)
+{
+  return multiplication(vector, scalar);
+}
+vec3 operator*(float32 scalar, vec3 vector)
+{
+  return multiplication(vector, scalar);
+}
+vec3 operator-(vec3 a, vec3 b) { return addition(a, vec3{-b.x, -b.y, -b.z}); }
 template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
 template <typename T> bool operator==(T a, T b) { return equality(a, b); }
 template <typename T> bool operator!=(T a, T b) { return !(a == b); }
@@ -451,7 +466,8 @@ enum GlobalEvents : u64 {
   GlobalEvents_PressedDown = 1 << 0,
 };
 global_variable u64 global_events = 0;
-struct audio_sample_header DOC("a clip of audio data") {
+struct audio_sample_header DOC("a clip of audio data")
+{
   float64 start_time;
   float64 end_time;
   float64 data_rate_hz;
@@ -536,9 +552,7 @@ void render_next_gl3(unsigned long long micros, Display display)
   }
   glClearColor(rgb.x, rgb.y, rgb.z, 0.0);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  rgb.x *= 0.99f;
-  rgb.y *= 0.99f;
-  rgb.z *= 0.99f;
+  rgb = 0.99f * rgb;
   DOC("ui")
   {
     if (ds4_device) {
@@ -557,13 +571,14 @@ void render_next_gl3(unsigned long long micros, Display display)
     draw_debug_string(0, 36, free_voices, 2, display.framebuffer_width_px,
                       display.framebuffer_height_px);
     local_state u64 last_micros = micros;
-    DOC("display framerate") {
+    DOC("display framerate")
+    {
       counted_range<char, memory_size> framerate_str;
       alloc_array(&transient_memory.frame_allocator, memory_size(1024),
                   &framerate_str);
       auto last = framerate_str.first;
       last = copy_n_bounded("Period: ", 8, last, end(framerate_str));
-      auto n = snprintf(last, end(framerate_str) - last, "%f",
+      auto n = snprintf(last, memory_size(end(framerate_str) - last), "%f",
                         (micros - last_micros) / 1000.0);
       if (n > 0) {
         last += n;
@@ -589,12 +604,12 @@ void render_next_gl3(unsigned long long micros, Display display)
       counted_range<vine_segment_header, memory_size> segment_storage;
       memory_size last_segment;
     };
-    auto allocate_vine_segment = [](slab_allocator *allocator,
-                                    memory_size max_path_size) {
-      vine_segment_header result;
-      alloc_array(allocator, max_path_size, &result.path_storage);
-      return result;
-    };
+    auto allocate_vine_segment =
+      [](slab_allocator *allocator, memory_size max_path_size) {
+        vine_segment_header result;
+        alloc_array(allocator, max_path_size, &result.path_storage);
+        return result;
+      };
     auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
                            float32 bifurcation_threshold) {
       auto &y = sink(dest);
@@ -605,18 +620,18 @@ void render_next_gl3(unsigned long long micros, Display display)
       y.energy_spent = 0.0;
       y.bifurcation_threshold = bifurcation_threshold;
     };
-    auto push_segment = [=](vine_header *dest) -> PointerOf(
-      vine_segment_header) {
-      auto &y = sink(dest);
-      if (addition_less(y.last_segment, memory_size(1),
-                        container_size(y.segment_storage))) {
-        auto &segment = sink(at(y.segment_storage, y.last_segment));
-        ++y.last_segment;
-        return &segment;
-      } else {
-        return nullptr;
-      }
-    };
+    auto push_segment =
+      [=](vine_header *dest) -> PointerOf(vine_segment_header) {
+        auto &y = sink(dest);
+        if (addition_less(y.last_segment, memory_size(1),
+                          container_size(y.segment_storage))) {
+          auto &segment = sink(at(y.segment_storage, y.last_segment));
+          ++y.last_segment;
+          return &segment;
+        } else {
+          return nullptr;
+        }
+      };
     auto allocate_vine = [=](
       slab_allocator *allocator, memory_size max_segment_size, vec3 start,
       vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
@@ -640,6 +655,14 @@ void render_next_gl3(unsigned long long micros, Display display)
                     {float32(10.0 / simulation_points_per_second),
                      float32(6.0 / simulation_points_per_second), 0.0},
                     0.6, 6 * simulation_points_per_second);
+    vec3 camera_center = {};
+    DOC("animate camera")
+    {
+      float64 const PI = 3.141592653589793238463;
+      float64 millis = micros / 1000.0;
+      camera_center.x = cpu_cos(PI * 2.0 / 3000.0 * millis);
+      camera_center.y = cpu_sin(PI * 2.0 / 3000.0 * millis);
+    };
     // grow vines
     for_each_n(begin(vine.segment_storage), vine.last_segment,
                [&](vine_segment_header &segment) {
@@ -678,9 +701,13 @@ void render_next_gl3(unsigned long long micros, Display display)
                     int(display.framebuffer_height_px),
                     1.0); // should be 2.0 on retina
       nvgReset(vg);
-      auto cm_to_display = display.framebuffer_width_px / 20.0;
-      nvgTranslate(vg, display.framebuffer_width_px / 2.0,
-                   display.framebuffer_height_px / 2.0);
+      auto cm_to_display = display.framebuffer_width_px / 20.0f;
+      vec3 center_in_screen_coordinates =
+        make_vec3(display.framebuffer_width_px / 2.0,
+                  display.framebuffer_height_px / 2.0, 0.0) +
+        cm_to_display * camera_center - make_vec3(0);
+      nvgTranslate(vg, center_in_screen_coordinates.x,
+                   center_in_screen_coordinates.y);
       nvgScale(vg, cm_to_display, -cm_to_display);
       nvgBeginPath(vg);
       // for now just draw the vine as a series of dots
@@ -1032,6 +1059,15 @@ float64 cpu_sin(float64 x)
   float64 y;
   asm("fld %0\n"
       "fsin"
+      : "=t"(y)
+      : "f"(x));
+  return y;
+}
+float64 cpu_cos(float64 x)
+{
+  float64 y;
+  asm("fld %0\n"
+      "fcos"
       : "=t"(y)
       : "f"(x));
   return y;
