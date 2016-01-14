@@ -140,18 +140,20 @@ struct modular_integer_tag {
 };
 template <typename T> struct integer_concept {
 };
-#define DefineModularInteger(T)                                                \
+template <typename T> constexpr T valid_max();
+#define DefineModularInteger(T, __upper_bound)                                 \
   template <> struct integer_concept<T> {                                      \
     using concept = modular_integer_tag;                                       \
-  };
-DefineModularInteger(u8);
-DefineModularInteger(u16);
-DefineModularInteger(u32);
-DefineModularInteger(u64);
-DefineModularInteger(s8);
-DefineModularInteger(s16);
-DefineModularInteger(s32);
-DefineModularInteger(s64);
+  };                                                                           \
+  template <> constexpr T valid_max<T>() { return __upper_bound; }
+DefineModularInteger(u8, ~u8(0));
+DefineModularInteger(u16, ~u16(0));
+DefineModularInteger(u32, ~u32(0));
+DefineModularInteger(u64, ~u64(0));
+DefineModularInteger(s8, s8(127));
+DefineModularInteger(s16, s16(32767));
+DefineModularInteger(s32, s32(2147483647));
+DefineModularInteger(s64, s64(9223372036854775807LL));
 #define IntegerConcept(T) typename integer_concept<T>::concept
 template <Integer I>
 bool addition_less(I x, I addand, I limit, modular_integer_tag)
@@ -165,6 +167,13 @@ bool addition_less(I x, I addand, I limit, modular_integer_tag)
     return true;
   }
 }
+template <Integer I> bool addition_valid(I x, I addand, modular_integer_tag tag)
+{
+  if (x >= valid_max<I>()) {
+    return false;
+  }
+  return addition_less(x, addand, valid_max<I>(), tag);
+}
 template <Integer I> bool addition_less(I x, I addand, I limit)
 {
   return addition_less(x, addand, limit, IntegerConcept(I)());
@@ -172,6 +181,10 @@ template <Integer I> bool addition_less(I x, I addand, I limit)
 template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
 {
   return addition_less(x, addand, limit) || ((x + addand) == limit);
+}
+template <Integer I> bool addition_valid(I x, I addand)
+{
+  return addition_valid(x, addand, IntegerConcept(I)());
 }
 // (Algorithms)
 template <IntegralConcept I> bool zero(I x) { return x == I(0); }
@@ -436,9 +449,13 @@ vec3 addition(vec3 a, vec3 b)
   result.z = a.z + b.z;
   return result;
 }
-vec3 multiplication(vec3 vector, float32 scalar)
+vec3 product(vec3 vector, float32 scalar)
 {
   return vec3{vector.x * scalar, vector.y * scalar, vector.z * scalar};
+}
+vec3 hadamard_product(vec3 a, vec3 b)
+{
+  return vec3{a.x * b.x, a.y * b.y, a.z * b.z};
 }
 float32 euclidean_norm(vec3 v)
 {
@@ -447,14 +464,8 @@ float32 euclidean_norm(vec3 v)
   float32 zz = v.z * v.z;
   return cpu_sqrt(xx + yy + zz);
 }
-vec3 operator*(vec3 vector, float32 scalar)
-{
-  return multiplication(vector, scalar);
-}
-vec3 operator*(float32 scalar, vec3 vector)
-{
-  return multiplication(vector, scalar);
-}
+vec3 operator*(vec3 vector, float32 scalar) { return product(vector, scalar); }
+vec3 operator*(float32 scalar, vec3 vector) { return product(vector, scalar); }
 vec3 operator-(vec3 a, vec3 b) { return addition(a, vec3{-b.x, -b.y, -b.z}); }
 template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
 template <typename T> bool operator==(T a, T b) { return equality(a, b); }
@@ -650,50 +661,70 @@ void render_next_gl3(unsigned long long micros, Display display)
       return result;
     };
     auto simulation_points_per_second = 60.0;
+    vec3 active_points_running_sum = {};
+    u8 active_points_count = 0;
     local_state vine_header vine =
       allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                     {float32(10.0 / simulation_points_per_second),
                      float32(6.0 / simulation_points_per_second), 0.0},
                     0.6, 6 * simulation_points_per_second);
+    // grow vines
+    for_each_n(
+      begin(vine.segment_storage), vine.last_segment,
+      [&](vine_segment_header &segment) {
+        if (addition_less(segment.last_path, memory_size(1),
+                          container_size(segment.path_storage))) {
+          auto index = segment.last_path;
+          auto growth = segment.growth;
+          vec3 tip = source(at(segment.path_storage, index - 1)) + growth;
+          sink(at(segment.path_storage, index)) = tip;
+          float growth_cost_j_per_cm = 0.1;
+          segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
+          ++segment.last_path;
+
+          if (addition_valid(active_points_count, u8(1))) {
+            ++active_points_count;
+            active_points_running_sum = active_points_running_sum + tip;
+          }
+
+          if (segment.energy_spent >= segment.bifurcation_threshold) {
+            // bifurcate!
+            segment.energy_spent = 0;
+            auto g = segment.growth;
+            auto temp = g.y;
+            g.y = g.x;
+            g.x = temp;
+            auto segment_ptr = push_segment(&vine);
+            if (segment_ptr) {
+              init_segment(segment_ptr, tip, g,
+                           segment.bifurcation_threshold * 1.75);
+            }
+          }
+        }
+      });
+    vec3 active_point_average;
+    if (active_points_count > 0) {
+      active_point_average =
+        (1.0 / active_points_count) * active_points_running_sum;
+    } else {
+      active_point_average = make_vec3(0);
+    }
+    // draw vines
     vec3 camera_center = {};
-    DOC("animate camera")
+    vec3 camera_halfsize = 80.0 / display.framebuffer_width_px *
+                           vec3{float32(display.framebuffer_width_px),
+                                float32(display.framebuffer_height_px), 0.0f};
+    DOC("animate camera in circle")
+#if 0
     {
       float64 const PI = 3.141592653589793238463;
       float64 millis = micros / 1000.0;
-      camera_center.x = cpu_cos(PI * 2.0 / 3000.0 * millis);
-      camera_center.y = cpu_sin(PI * 2.0 / 3000.0 * millis);
+      camera_center.x = 8*cpu_cos(PI * 2.0 / 3000.0 * millis);
+      camera_center.y = 8*cpu_sin(PI * 2.0 / 3000.0 * millis);
     };
-    // grow vines
-    for_each_n(begin(vine.segment_storage), vine.last_segment,
-               [&](vine_segment_header &segment) {
-                 if (addition_less(segment.last_path, memory_size(1),
-                                   container_size(segment.path_storage))) {
-                   auto index = segment.last_path;
-                   auto growth = segment.growth;
-                   vec3 tip =
-                     source(at(segment.path_storage, index - 1)) + growth;
-                   sink(at(segment.path_storage, index)) = tip;
-                   float growth_cost_j_per_cm = 0.1;
-                   segment.energy_spent +=
-                     growth_cost_j_per_cm * euclidean_norm(growth);
-                   ++segment.last_path;
-
-                   if (segment.energy_spent >= segment.bifurcation_threshold) {
-                     // bifurcate!
-                     segment.energy_spent = 0;
-                     auto g = segment.growth;
-                     auto temp = g.y;
-                     g.y = g.x;
-                     g.x = temp;
-                     auto segment_ptr = push_segment(&vine);
-                     if (segment_ptr) {
-                       init_segment(segment_ptr, tip, g,
-                                    segment.bifurcation_threshold * 1.15);
-                     }
-                   }
-                 }
-               });
-    // draw vines
+#else
+    camera_center = active_point_average;
+#endif
     local_state auto vg = nvg_create_context();
     glClear(GL_STENCIL_BUFFER_BIT);
     {
@@ -701,11 +732,11 @@ void render_next_gl3(unsigned long long micros, Display display)
                     int(display.framebuffer_height_px),
                     1.0); // should be 2.0 on retina
       nvgReset(vg);
-      auto cm_to_display = display.framebuffer_width_px / 20.0f;
+      auto cm_to_display = display.framebuffer_width_px / camera_halfsize.x;
       vec3 center_in_screen_coordinates =
         make_vec3(display.framebuffer_width_px / 2.0,
-                  display.framebuffer_height_px / 2.0, 0.0) +
-        cm_to_display * camera_center - make_vec3(0);
+                  display.framebuffer_height_px / 2.0) +
+        cm_to_display * make_vec3(-camera_center.x, camera_center.y);
       nvgTranslate(vg, center_in_screen_coordinates.x,
                    center_in_screen_coordinates.y);
       nvgScale(vg, cm_to_display, -cm_to_display);
@@ -727,6 +758,11 @@ void render_next_gl3(unsigned long long micros, Display display)
                    nvgCircle(vg, segment.stem_start.x, segment.stem_start.y,
                              dot_radius);
                  });
+      nvgFill(vg);
+      nvgBeginPath(vg);
+      nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
+      nvgCircle(vg, active_point_average.x, active_point_average.y,
+                5 * dot_radius);
       nvgFill(vg);
       nvgEndFrame(vg);
     }
