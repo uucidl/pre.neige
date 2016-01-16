@@ -146,10 +146,10 @@ template <typename T> constexpr T valid_max();
     using concept = modular_integer_tag;                                       \
   };                                                                           \
   template <> constexpr T valid_max<T>() { return __upper_bound; }
-DefineModularInteger(u8, ~u8(0));
-DefineModularInteger(u16, ~u16(0));
-DefineModularInteger(u32, ~u32(0));
-DefineModularInteger(u64, ~u64(0));
+DefineModularInteger(u8, u8(~0u));
+DefineModularInteger(u16, u16(~0u));
+DefineModularInteger(u32, u32(~0u));
+DefineModularInteger(u64, u64(~0u));
 DefineModularInteger(s8, s8(127));
 DefineModularInteger(s16, s16(32767));
 DefineModularInteger(s32, s32(2147483647));
@@ -429,6 +429,7 @@ hid_device *query_ds4(u64 micros)
   }
   return global_optional_ds4;
 }
+template <typename N> N square(N n) { return n * n; }
 struct vec3 MODELS(Regular) { float32 x, y, z; };
 vec3 make_vec3(float32 v) { return {v, v, v}; }
 vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
@@ -456,6 +457,11 @@ vec3 product(vec3 vector, float32 scalar)
 vec3 hadamard_product(vec3 a, vec3 b)
 {
   return vec3{a.x * b.x, a.y * b.y, a.z * b.z};
+}
+vec3 cross_product(vec3 a, vec3 b)
+{
+  return vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+              a.x * b.y - a.y * b.z};
 }
 float32 euclidean_norm(vec3 v)
 {
@@ -608,6 +614,7 @@ void render_next_gl3(unsigned long long micros, Display display)
       vec3 growth;
       counted_range<vec3, memory_size> path_storage;
       memory_size last_path;
+      int bifurcation_bit;
       float32 bifurcation_threshold;
       float32 energy_spent;
     };
@@ -629,6 +636,7 @@ void render_next_gl3(unsigned long long micros, Display display)
       sink(at(y.path_storage, 0)) = y.stem_start;
       y.last_path = 1;
       y.energy_spent = 0.0;
+      y.bifurcation_bit = 0;
       y.bifurcation_threshold = bifurcation_threshold;
     };
     auto push_segment =
@@ -666,9 +674,9 @@ void render_next_gl3(unsigned long long micros, Display display)
     local_state vine_header vine =
       allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                     {float32(10.0 / simulation_points_per_second),
-                     float32(6.0 / simulation_points_per_second), 0.0},
+                     float32(8.0 / simulation_points_per_second), 0.0},
                     0.6, 6 * simulation_points_per_second);
-    // grow vines
+    // grow vine
     for_each_n(
       begin(vine.segment_storage), vine.last_segment,
       [&](vine_segment_header &segment) {
@@ -676,28 +684,37 @@ void render_next_gl3(unsigned long long micros, Display display)
                           container_size(segment.path_storage))) {
           auto index = segment.last_path;
           auto growth = segment.growth;
-          vec3 tip = source(at(segment.path_storage, index - 1)) + growth;
+          vec3 const &previous = source(at(segment.path_storage, index - 1));
+          vec3 tip = previous + growth;
+          vec3 instant_velocity =
+            (tip - previous) * simulation_points_per_second;
+          vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
+          vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
+          segment.growth = segment.growth + magnetic_force;
           sink(at(segment.path_storage, index)) = tip;
-          float growth_cost_j_per_cm = 0.1;
-          segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
           ++segment.last_path;
-
           if (addition_valid(active_points_count, u8(1))) {
             ++active_points_count;
             active_points_running_sum = active_points_running_sum + tip;
           }
-
-          if (segment.energy_spent >= segment.bifurcation_threshold) {
+          float growth_cost_j_per_cm = 0.08;
+          auto old_energy_spent = segment.energy_spent;
+          segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
+          if (old_energy_spent < segment.bifurcation_threshold &&
+              segment.energy_spent >= segment.bifurcation_threshold) {
             // bifurcate!
-            segment.energy_spent = 0;
+#if 1
+            segment.energy_spent = 0; // allow regrowth
+            segment.bifurcation_threshold *= 1.1;
+#endif
             auto g = segment.growth;
-            auto temp = g.y;
-            g.y = g.x;
-            g.x = temp;
+            auto v = make_vec3(0, 0, segment.bifurcation_bit ? 1 : -1);
+            g = 0.6 * g + 0.4 * cross_product(g, v);
             auto segment_ptr = push_segment(&vine);
+            segment.bifurcation_bit = ~segment.bifurcation_bit;
             if (segment_ptr) {
               init_segment(segment_ptr, tip, g,
-                           segment.bifurcation_threshold * 1.75);
+                           2.0 * segment.bifurcation_threshold);
             }
           }
         }
