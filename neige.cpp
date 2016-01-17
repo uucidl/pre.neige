@@ -1,6 +1,6 @@
 /*
   Build instructions:
-  OSX: "clang++ -DOS=OS_OSX -g -std=c++11 -framework System -Wall -Wextra \
+  OSX: "clang++ -DOS=OS_OSX -DSTATIC_GLEW -g -std=c++11 -framework System -Wall -Wextra \
   -Wno-tautological-compare -Wsign-conversion \
   neige.cpp -o neige                                                    \
   -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
@@ -36,6 +36,7 @@
 #define DOC(...)          // to document a symbol
 #define DOC_COUPLING(...) // to document coupling w/ other symbols
 #define URL(...)          // reference to a resource
+#define TAG(...)          // a tag, for documentation
 // (Compiler)
 #define CLANG_ATTRIBUTE(x) __attribute__((x))
 #define debugger_break() DOC("invoke debugger") asm("int3")
@@ -69,17 +70,17 @@ static_assert(sizeof(float64) == 8, "float64");
 // (SizeOf)
 #define SizeOf(x) sizeof(x)
 // (PointerOf)
-#define PointerOf(T) T *
+template <typename T> using PointerOf = T *;
 // (DistanceType)
 template <typename T> struct distance_type_impl {
 };
-template <typename T> struct distance_type_impl<PointerOf(T)> {
+template <typename T> struct distance_type_impl<PointerOf<T>> {
   using type = u64;
 };
-#define DistanceType(T) typename distance_type_impl<T>::type
+template <typename T> using DistanceType = typename distance_type_impl<T>::type;
 // (Memory)
-using memory_address = PointerOf(u8);
-using memory_size = DistanceType(memory_address);
+using memory_address = PointerOf<u8>;
+using memory_size = DistanceType<memory_address>;
 static_assert(SizeOf(memory_address) == SizeOf(memory_size),
               "memory_size incorrect for architecture");
 // (Os)
@@ -120,12 +121,12 @@ fixed_array_header<T, N> make_fixed_array_header(T(&array)[N])
   return header;
 }
 template <typename T, memory_size N>
-PointerOf(T) begin(fixed_array_header<T, N> &x)
+PointerOf<T> begin(fixed_array_header<T, N> &x)
 {
   return &x[0];
 }
 template <typename T, memory_size N>
-PointerOf(T) end(fixed_array_header<T, N> &x)
+PointerOf<T> end(fixed_array_header<T, N> &x)
 {
   return begin(x) + container_size(x);
 }
@@ -154,7 +155,8 @@ DefineModularInteger(s8, s8(127));
 DefineModularInteger(s16, s16(32767));
 DefineModularInteger(s32, s32(2147483647));
 DefineModularInteger(s64, s64(9223372036854775807LL));
-#define IntegerConcept(T) typename integer_concept<T>::concept
+template <typename T>
+using IntegerConcept = typename integer_concept<T>::concept;
 template <Integer I>
 bool addition_less(I x, I addand, I limit, modular_integer_tag)
 {
@@ -176,7 +178,7 @@ template <Integer I> bool addition_valid(I x, I addand, modular_integer_tag tag)
 }
 template <Integer I> bool addition_less(I x, I addand, I limit)
 {
-  return addition_less(x, addand, limit, IntegerConcept(I)());
+  return addition_less(x, addand, limit, IntegerConcept<I>());
 }
 template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
 {
@@ -184,16 +186,16 @@ template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
 }
 template <Integer I> bool addition_valid(I x, I addand)
 {
-  return addition_valid(x, addand, IntegerConcept(I)());
+  return addition_valid(x, addand, IntegerConcept<I>());
 }
 // (Algorithms)
 template <IntegralConcept I> bool zero(I x) { return x == I(0); }
 template <IntegralConcept I> I successor(I x) { return x + 1; }
 template <IntegralConcept I> I predecessor(I x) { return x - 1; }
-template <typename T> T &source(PointerOf(T) x) { return *x; }
-template <typename T> T &sink(PointerOf(T) x) { return *x; }
-template <typename T> PointerOf(T) successor(PointerOf(T) x) { return x + 1; }
-template <typename T> PointerOf(T) predecessor(PointerOf(T) x) { return x - 1; }
+template <typename T> T &source(PointerOf<T> x) { return *x; }
+template <typename T> T &sink(PointerOf<T> x) { return *x; }
+template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
+template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
 template <typename T> memory_address AddressOf(T &x)
 {
   return memory_address(&x);
@@ -273,30 +275,30 @@ u64 container_size(counted_range<T, I> x)
   return x.count;
 }
 template <typename T, IntegralConcept I>
-PointerOf(T) begin(counted_range<T, I> x)
+PointerOf<T> begin(counted_range<T, I> x)
 {
   return x.first;
 }
-template <typename T, IntegralConcept I> PointerOf(T) end(counted_range<T, I> x)
+template <typename T, IntegralConcept I> PointerOf<T> end(counted_range<T, I> x)
 {
   return begin(x) + x.count;
 }
 template <typename T, IntegralConcept I>
-PointerOf(T) at(counted_range<T, I> x, memory_size i)
+PointerOf<T> at(counted_range<T, I> x, memory_size i)
 {
   return &x.first[i];
 }
 template <typename Allocator, typename T>
-void alloc_array(PointerOf(Allocator) allocator, memory_size count,
-                 PointerOf(PointerOf(T)) dest_pointer_output)
+void alloc_array(PointerOf<Allocator> allocator, memory_size count,
+                 PointerOf<PointerOf<T>> dest_pointer_output)
   DOC("allocate enough room for a contiguous array and copy it to "
       "`dest_pointer_output`")
 {
   sink(dest_pointer_output) =
-    reinterpret_cast<PointerOf(T)>(alloc(allocator, SizeOf(T) * count));
+    reinterpret_cast<PointerOf<T>>(alloc(allocator, SizeOf(T) * count));
 }
 template <typename Allocator, typename T, IntegralConcept I>
-void alloc_array(PointerOf(Allocator) allocator, I count,
+void alloc_array(PointerOf<Allocator> allocator, I count,
                  counted_range<T, I> *dest)
   DOC("allocate enough room for a contiguous array and copy it to "
       "`dest`")
@@ -305,10 +307,10 @@ void alloc_array(PointerOf(Allocator) allocator, I count,
   dest->count = count;
 }
 template <typename T, typename Allocator>
-PointerOf(T) object_alloc(PointerOf(Allocator) allocator)
+PointerOf<T> object_alloc(PointerOf<Allocator> allocator)
 {
   auto address = alloc(allocator, SizeOf(T));
-  return reinterpret_cast<PointerOf(T)>(address);
+  return reinterpret_cast<PointerOf<T>>(address);
 }
 template <typename T>
 counted_range<T, memory_size> slice_memory(memory_address start,
@@ -316,7 +318,7 @@ counted_range<T, memory_size> slice_memory(memory_address start,
 {
   // TODO(nicolas): alignment assertion
   counted_range<T, memory_size> result;
-  result.first = reinterpret_cast<PointerOf(T)>(start);
+  result.first = reinterpret_cast<PointerOf<T>>(start);
   result.count = size / SizeOf(T);
   return result;
 }
@@ -405,6 +407,7 @@ float64 cpu_sqrt(float64 x);
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
+void vine_effect(Display const &display) TAG("visuals");
 global_variable hid_device *global_optional_ds4;
 NVGcontext *nvg_create_context();
 void forget_ds4() { global_optional_ds4 = nullptr; }
@@ -607,58 +610,65 @@ void render_next_gl3(unsigned long long micros, Display display)
     }
     last_micros = micros;
   }
-  DOC("main effect")
-  {
-    struct vine_segment_header {
-      vec3 stem_start;
-      vec3 growth;
-      counted_range<vec3, memory_size> path_storage;
-      memory_size last_path;
-      int bifurcation_bit;
-      float32 bifurcation_threshold;
-      float32 energy_spent;
+  DOC("main effect") { vine_effect(display); }
+}
+void vine_effect(Display const &display) TAG("visuals")
+{
+  struct vine_segment_header {
+    vec3 stem_start;
+    vec3 stem_end;
+    vec3 growth;
+    int bifurcation_bit;
+    float32 bifurcation_threshold;
+    float32 energy_spent;
+    // history:
+    counted_range<vec3, memory_size> path_storage;
+    memory_size last_point_index;
+    memory_size point_count;
+  };
+  struct vine_header {
+    counted_range<vine_segment_header, memory_size> segment_storage;
+    memory_size last_segment;
+  };
+  auto allocate_vine_segment =
+    [](slab_allocator *allocator, memory_size max_path_size) {
+      vine_segment_header result;
+      alloc_array(allocator, max_path_size, &result.path_storage);
+      return result;
     };
-    struct vine_header {
-      counted_range<vine_segment_header, memory_size> segment_storage;
-      memory_size last_segment;
-    };
-    auto allocate_vine_segment =
-      [](slab_allocator *allocator, memory_size max_path_size) {
-        vine_segment_header result;
-        alloc_array(allocator, max_path_size, &result.path_storage);
-        return result;
-      };
-    auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
-                           float32 bifurcation_threshold) {
-      auto &y = sink(dest);
-      y.stem_start = start;
-      y.growth = growth;
-      sink(at(y.path_storage, 0)) = y.stem_start;
-      y.last_path = 1;
-      y.energy_spent = 0.0;
-      y.bifurcation_bit = 0;
-      y.bifurcation_threshold = bifurcation_threshold;
-    };
-    auto push_segment =
-      [=](vine_header *dest) -> PointerOf(vine_segment_header) {
-        auto &y = sink(dest);
-        if (addition_less(y.last_segment, memory_size(1),
-                          container_size(y.segment_storage))) {
-          auto &segment = sink(at(y.segment_storage, y.last_segment));
-          ++y.last_segment;
-          return &segment;
-        } else {
-          return nullptr;
-        }
-      };
-    auto allocate_vine = [=](
-      slab_allocator *allocator, memory_size max_segment_size, vec3 start,
-      vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+  auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
+                         float32 bifurcation_threshold) {
+    auto &y = sink(dest);
+    y.stem_start = start;
+    y.stem_end = start;
+    y.growth = growth;
+    y.energy_spent = 0.0;
+    y.bifurcation_bit = 0;
+    y.bifurcation_threshold = bifurcation_threshold;
+    sink(at(y.path_storage, 0)) = y.stem_start;
+    y.last_point_index = 1;
+    y.point_count = 1;
+  };
+  auto push_segment = [=](vine_header *dest) -> PointerOf<vine_segment_header> {
+    auto &y = sink(dest);
+    if (addition_less(y.last_segment, memory_size(1),
+                      container_size(y.segment_storage))) {
+      auto &segment = sink(at(y.segment_storage, y.last_segment));
+      ++y.last_segment;
+      return &segment;
+    } else {
+      return nullptr;
+    }
+  };
+  auto allocate_vine =
+    [=](slab_allocator *allocator, memory_size max_segment_count, vec3 start,
+        vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
       vine_header result;
-      alloc_array(allocator, max_segment_size, &result.segment_storage);
+      alloc_array(allocator, max_segment_count, &result.segment_storage);
       for_each_n(begin(result.segment_storage),
                  container_size(result.segment_storage),
                  [&](vine_segment_header &y) {
+                   // TODO(nicolas): variable size segments
                    y = allocate_vine_segment(allocator, max_path_size);
                  });
       result.last_segment = 0;
@@ -668,70 +678,71 @@ void render_next_gl3(unsigned long long micros, Display display)
       }
       return result;
     };
-    auto simulation_points_per_second = 60.0;
-    vec3 active_points_running_sum = {};
-    u8 active_points_count = 0;
-    local_state vine_header vine =
-      allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
-                    {float32(10.0 / simulation_points_per_second),
-                     float32(8.0 / simulation_points_per_second), 0.0},
-                    0.6, 6 * simulation_points_per_second);
-    // grow vine
-    for_each_n(
-      begin(vine.segment_storage), vine.last_segment,
-      [&](vine_segment_header &segment) {
-        if (addition_less(segment.last_path, memory_size(1),
-                          container_size(segment.path_storage))) {
-          auto index = segment.last_path;
-          auto growth = segment.growth;
-          vec3 const &previous = source(at(segment.path_storage, index - 1));
-          vec3 tip = previous + growth;
-          vec3 instant_velocity =
-            (tip - previous) * simulation_points_per_second;
-          vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
-          vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
-          segment.growth = segment.growth + magnetic_force;
-          sink(at(segment.path_storage, index)) = tip;
-          ++segment.last_path;
-          if (addition_valid(active_points_count, u8(1))) {
-            ++active_points_count;
-            active_points_running_sum = active_points_running_sum + tip;
-          }
-          float growth_cost_j_per_cm = 0.08;
-          auto old_energy_spent = segment.energy_spent;
-          segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
-          if (old_energy_spent < segment.bifurcation_threshold &&
-              segment.energy_spent >= segment.bifurcation_threshold) {
+  auto simulation_points_per_second = 60.0;
+  vec3 active_points_running_sum = {};
+  u8 active_points_count = 0;
+  local_state vine_header vine =
+    allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
+                  {float32(10.0 / simulation_points_per_second),
+                   float32(8.0 / simulation_points_per_second), 0.0},
+                  0.6, 6 * simulation_points_per_second);
+  DOC("grow vine")
+  for_each_n(
+    begin(vine.segment_storage), vine.last_segment,
+    [&](vine_segment_header &segment) {
+      auto growth = segment.growth;
+      vec3 const &previous = segment.stem_end;
+      vec3 tip = previous + growth;
+      vec3 instant_velocity = (tip - previous) * simulation_points_per_second;
+      vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
+      vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
+      segment.growth = segment.growth + magnetic_force;
+      segment.stem_end = tip;
+      if (addition_valid(active_points_count, u8(1))) {
+        ++active_points_count;
+        active_points_running_sum = active_points_running_sum + tip;
+      }
+      float growth_cost_j_per_cm = 0.08;
+      auto old_energy_spent = segment.energy_spent;
+      segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
+      if (old_energy_spent < segment.bifurcation_threshold &&
+          segment.energy_spent >= segment.bifurcation_threshold) {
             // bifurcate!
-#if 1
-            segment.energy_spent = 0; // allow regrowth
-            segment.bifurcation_threshold *= 1.1;
-#endif
-            auto g = segment.growth;
-            auto v = make_vec3(0, 0, segment.bifurcation_bit ? 1 : -1);
-            g = 0.6 * g + 0.4 * cross_product(g, v);
-            auto segment_ptr = push_segment(&vine);
-            segment.bifurcation_bit = ~segment.bifurcation_bit;
-            if (segment_ptr) {
-              init_segment(segment_ptr, tip, g,
-                           2.0 * segment.bifurcation_threshold);
-            }
-          }
+        segment.energy_spent = 0; // allow regrowth
+        segment.bifurcation_threshold *= 1.1;
+        auto g = segment.growth;
+        auto v = make_vec3(0, 0, segment.bifurcation_bit ? 1 : -1);
+        g = 0.7 * g + 0.3 * cross_product(g, v);
+        auto segment_ptr = push_segment(&vine);
+        segment.bifurcation_bit = ~segment.bifurcation_bit;
+        if (segment_ptr) {
+          init_segment(segment_ptr, tip, g, 10.0*segment.bifurcation_threshold);
         }
-      });
-    vec3 active_point_average;
-    if (active_points_count > 0) {
-      active_point_average =
-        (1.0 / active_points_count) * active_points_running_sum;
-    } else {
-      active_point_average = make_vec3(0);
-    }
-    // draw vines
-    vec3 camera_center = {};
-    vec3 camera_halfsize = 80.0 / display.framebuffer_width_px *
-                           vec3{float32(display.framebuffer_width_px),
-                                float32(display.framebuffer_height_px), 0.0f};
-    DOC("animate camera in circle")
+      }
+      // collect in history
+      if (addition_less(segment.last_point_index, memory_size(1),
+                        container_size(segment.path_storage))) {
+        sink(at(segment.path_storage, segment.last_point_index)) = tip;
+        ++segment.last_point_index;
+        ++segment.point_count;
+      } else {
+        // rewind
+        segment.last_point_index = 0;
+      }
+    });
+  vec3 active_point_average;
+  if (active_points_count > 0) {
+    active_point_average =
+      (1.0 / active_points_count) * active_points_running_sum;
+  } else {
+    active_point_average = make_vec3(0);
+  }
+  // draw vines
+  vec3 camera_center = {};
+  vec3 camera_halfsize = 40.0 / display.framebuffer_width_px *
+                         vec3{float32(display.framebuffer_width_px),
+                              float32(display.framebuffer_height_px), 0.0f};
+  DOC("animate camera in circle")
 #if 0
     {
       float64 const PI = 3.141592653589793238463;
@@ -740,49 +751,58 @@ void render_next_gl3(unsigned long long micros, Display display)
       camera_center.y = 8*cpu_sin(PI * 2.0 / 3000.0 * millis);
     };
 #else
-    camera_center = active_point_average;
+  camera_center = active_point_average;
 #endif
-    local_state auto vg = nvg_create_context();
-    glClear(GL_STENCIL_BUFFER_BIT);
+  local_state auto vg = nvg_create_context();
+  glClear(GL_STENCIL_BUFFER_BIT);
+  {
+    nvgBeginFrame(vg, int(display.framebuffer_width_px),
+                  int(display.framebuffer_height_px),
+                  1.0); // should be 2.0 on retina
+    nvgReset(vg);
+    auto cm_to_display = display.framebuffer_width_px / camera_halfsize.x;
+    vec3 center_in_screen_coordinates =
+      make_vec3(display.framebuffer_width_px / 2.0,
+                display.framebuffer_height_px / 2.0) +
+      cm_to_display * make_vec3(-camera_center.x, camera_center.y);
+    nvgTranslate(vg, center_in_screen_coordinates.x,
+                 center_in_screen_coordinates.y);
+    nvgScale(vg, cm_to_display, -cm_to_display);
+    nvgBeginPath(vg);
+    // for now just draw the vine as a series of dots
+    auto dot_radius = 0.07;
+    for_each_n(
+      begin(vine.segment_storage), vine.last_segment,
+      [&](vine_segment_header segment) {
+        for_each_n(
+          begin(segment.path_storage),
+          min(container_size(segment.path_storage), segment.point_count),
+          [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
+      });
+    nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
+    nvgFill(vg);
+    nvgBeginPath(vg);
+    nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
+    DOC("draw tips")
     {
-      nvgBeginFrame(vg, int(display.framebuffer_width_px),
-                    int(display.framebuffer_height_px),
-                    1.0); // should be 2.0 on retina
-      nvgReset(vg);
-      auto cm_to_display = display.framebuffer_width_px / camera_halfsize.x;
-      vec3 center_in_screen_coordinates =
-        make_vec3(display.framebuffer_width_px / 2.0,
-                  display.framebuffer_height_px / 2.0) +
-        cm_to_display * make_vec3(-camera_center.x, camera_center.y);
-      nvgTranslate(vg, center_in_screen_coordinates.x,
-                   center_in_screen_coordinates.y);
-      nvgScale(vg, cm_to_display, -cm_to_display);
-      nvgBeginPath(vg);
-      // for now just draw the vine as a series of dots
-      auto dot_radius = 0.07;
-      for_each_n(begin(vine.segment_storage), vine.last_segment,
-                 [&](vine_segment_header segment) {
-                   for_each_n(
-                     begin(segment.path_storage), segment.last_path,
-                     [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
-                 });
-      nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
-      nvgFill(vg);
-      nvgBeginPath(vg);
-      nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
       for_each_n(begin(vine.segment_storage), vine.last_segment,
                  [&](vine_segment_header segment) {
                    nvgCircle(vg, segment.stem_start.x, segment.stem_start.y,
                              dot_radius);
+                   nvgCircle(vg, segment.stem_end.x, segment.stem_end.y,
+                             2.0 * dot_radius);
                  });
-      nvgFill(vg);
+    }
+    nvgFill(vg);
+    DOC("draw average active point")
+    {
       nvgBeginPath(vg);
       nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
       nvgCircle(vg, active_point_average.x, active_point_average.y,
                 5 * dot_radius);
       nvgFill(vg);
-      nvgEndFrame(vg);
     }
+    nvgEndFrame(vg);
   }
 }
 struct music_event {
@@ -1191,3 +1211,6 @@ NVGcontext *nvg_create_context()
   return nvgCreateGL3(flags);
 }
 #pragma clang diagnostic pop
+#if defined(STATIC_GLEW)
+#include "uu.micros/libs/glew/src/glew.c"
+#endif
