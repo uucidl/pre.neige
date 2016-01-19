@@ -890,21 +890,34 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     active_point_average = make_vec3(0);
   }
   // draw vines
-  vec3 camera_center = {};
+  local_state vec3 camera_center = {};
   vec3 camera_halfsize = 40.0 / display.framebuffer_width_px *
                          vec3{float32(display.framebuffer_width_px),
                               float32(display.framebuffer_height_px), 0.0f};
-  DOC("animate camera in circle")
-#if 0
-    {
-      float64 const PI = 3.141592653589793238463;
-      float64 millis = micros / 1000.0;
-      camera_center.x = 8*cpu_cos(PI * 2.0 / 3000.0 * millis);
-      camera_center.y = 8*cpu_sin(PI * 2.0 / 3000.0 * millis);
-    };
-#else
-  camera_center = active_point_average;
-#endif
+  DOC("janky camera physics focusing on average point")
+  {
+    local_state vec3 camera_speed = {};
+    auto delta_to_POI = active_point_average - camera_center;
+    if (delta_to_POI.x > 0.40 * camera_halfsize.x) {
+      camera_speed.x += 0.2;
+    } else if (delta_to_POI.x < -0.40 * camera_halfsize.x) {
+      camera_speed.x += -0.2;
+    } else if (square(0.05 * camera_halfsize.x - delta_to_POI.x) < 0.1) {
+      // nothing
+    } else {
+      camera_speed.x += 0.004 * (delta_to_POI.x - camera_speed.x);
+    }
+    if (delta_to_POI.y > 0.40 * camera_halfsize.y) {
+      camera_speed.y += 0.2;
+    } else if (delta_to_POI.y < -0.40 * camera_halfsize.y) {
+      camera_speed.y += -0.2;
+    } else if (square(0.05 * camera_halfsize.y - delta_to_POI.y) < 0.1) {
+      // nothing
+    } else {
+      camera_speed.y += 0.004 * (delta_to_POI.y - camera_speed.y);
+    }
+    camera_center = camera_center + camera_speed;
+  }
   local_state auto vg = nvg_create_context();
   glClear(GL_STENCIL_BUFFER_BIT);
   {
