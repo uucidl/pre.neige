@@ -115,7 +115,8 @@ using Writable = typename writable_concept<T>::writable_type;
 template <typename T> struct writable_concept<PointerOf<T>> {
   using writable_type = T;
 };
-template <WritableConcept WC> Writable<WC> sink(WC x);
+template <WritableConcept WC, typename Check = Writable<WC>>
+Writable<WC> sink(WC x);
 // (Fixed Array Type)
 template <typename T, memory_size N> constexpr u64 container_size(T(&)[N])
 {
@@ -170,6 +171,10 @@ circular_ordinate<Ordinate> successor(circular_ordinate<Ordinate> x)
   }
   return result;
 }
+template <OrdinateConcept Ordinate>
+struct writable_concept<circular_ordinate<Ordinate>> {
+  using writable_type = Writable<Ordinate>;
+};
 template <OrdinateConcept Ordinate>
 REQUIRES(WritableConcept<Ordinate>) Writable<Ordinate> &sink(
   struct circular_ordinate<Ordinate> x)
@@ -247,8 +252,17 @@ template <typename T> memory_address AddressOf(T &xref)
 {
   return memory_address(&xref);
 }
+template <OrdinateConcept I, typename Check = Writable<I>>
+I set_step(I *pos_ptr, Writable<I> const &value)
+{
+  auto &pos = *pos_ptr;
+  auto const old_pos = pos;
+  sink(pos) = value;
+  pos = successor(pos);
+  return old_pos;
+}
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
-          UnaryFunctionConcept Op>
+          UnaryFunctionConcept Op, typename Check = IntegerConcept<I>>
 REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
   for_each_n(InputOrdinateConcept first, I n, Op operation)
     DOC("for `n` times, advance iterator `first` and apply `operation` on its "
@@ -259,7 +273,18 @@ REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
     first = successor(first);
     n = predecessor(n);
   }
-
+  return first;
+}
+template <OrdinateConcept InputOrdinateConcept, UnaryFunctionConcept Op>
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+  for_each(InputOrdinateConcept first, InputOrdinateConcept last, Op operation)
+    DOC("for `n` times, advance iterator `first` and apply `operation` on its "
+        "source")
+{
+  while (first != last) {
+    operation(source(first));
+    first = successor(first);
+  }
   return first;
 }
 template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
@@ -351,6 +376,33 @@ template <typename T, IntegralConcept I>
 ReadWriteOrdinate<counted_range<T, I>> at(counted_range<T, I> x, memory_size i)
 {
   return &x.first[i];
+}
+template <typename T, IntegralConcept I>
+ReadWriteOrdinate<counted_range<T, I>>
+step_within(counted_range<T, I> x,
+            ReadWriteOrdinate<counted_range<T, I>> *position)
+{
+  auto &p = *position;
+  auto const previous = p;
+  fatal_if(p < 0);
+  if (I(p - x.first) < x.count) {
+    p = successor(p);
+  }
+  return previous;
+}
+template <typename T, IntegralConcept I>
+ReadWriteOrdinate<counted_range<T, I>>
+set_step_within(counted_range<T, I> x,
+                ReadWriteOrdinate<counted_range<T, I>> *position, T value)
+{
+  auto &p = *position;
+  auto const previous = p;
+  fatal_if(p < x.first);
+  if (p - x.first < x.count) {
+    sink(p) = value;
+    p = successor(p);
+  }
+  return previous;
 }
 template <typename Allocator, typename T>
 void alloc_array(PointerOf<Allocator> allocator, memory_size count,
@@ -706,9 +758,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   };
   struct vine_header {
     counted_range<vine_stem_header, memory_size> stem_storage;
-    memory_size last_stem;
+    vine_stem_header *last_stem;
     counted_range<vine_stem_history_header, memory_size> history_storage;
-    memory_size last_history;
+    vine_stem_history_header *last_history;
   };
   auto allocate_vine_stem_history =
     [](slab_allocator *allocator, memory_size max_path_size) {
@@ -737,11 +789,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   };
   auto push_vine_stem = [=](vine_header *dest) -> PointerOf<vine_stem_header> {
     auto &y = sink(dest);
-    if (addition_less(y.last_stem, memory_size(1),
-                      container_size(y.stem_storage))) {
-      auto &stem = sink(at(y.stem_storage, y.last_stem));
-      ++y.last_stem;
-      return &stem;
+    auto stem_pos = step_within(y.stem_storage, &y.last_stem);
+    if (stem_pos < end(y.stem_storage)) {
+      return &sink(stem_pos);
     } else {
       return nullptr;
     }
@@ -751,15 +801,15 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   enum { MAX_STEMS_CREATED_PER_FRAME = 16 };
   alloc_array(&transient_memory.frame_allocator,
               u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
-  u32 last_created_stem = 0;
+  vine_stem_header *last_created_stem = begin(created_stems);
   auto allocate_vine =
     [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
         vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
       vine_header result;
       alloc_array(allocator, max_stem_count, &result.stem_storage);
-      result.last_stem = 0;
+      result.last_stem = begin(result.stem_storage);
       alloc_array(allocator, max_stem_count, &result.history_storage);
-      result.last_history = 0;
+      result.last_history = begin(result.history_storage);
       for_each_n(begin(result.history_storage),
                  container_size(result.history_storage),
                  [&](vine_stem_history_header &y) {
@@ -768,9 +818,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       auto stem_ptr = push_vine_stem(&result);
       if (stem_ptr) {
         init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
-                       u32(result.last_stem));
-        sink(at(created_stems, last_created_stem)) = *stem_ptr;
-        ++last_created_stem;
+                       u32(result.last_stem - begin(result.stem_storage)));
+        set_step_within(created_stems, &last_created_stem, *stem_ptr);
       }
       return result;
     };
@@ -782,7 +831,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
   DOC("grow vine")
-  for_each_n(
+  for_each(
     begin(vine.stem_storage), vine.last_stem, [&](vine_stem_header &stem) {
       auto growth = stem.growth;
       vec3 const &previous = stem.end;
@@ -807,36 +856,32 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         auto g = stem.growth;
         auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
         g = 0.7 * g + 0.3 * cross_product(g, v);
-        auto stem_ptr = push_vine_stem(&vine);
         stem.bifurcation_bit = ~stem.bifurcation_bit;
-        if (stem_ptr && last_created_stem < container_size(created_stems)) {
+        auto stem_ptr = push_vine_stem(&vine);
+        if (stem_ptr) {
           init_vine_stem(stem_ptr, tip, g, 10.0 * stem.bifurcation_threshold,
-                         u32(vine.last_stem));
-          sink(at(created_stems, last_created_stem)) = *stem_ptr;
-          ++last_created_stem;
+                         u32(vine.last_stem - begin(vine.stem_storage)));
+          set_step_within(created_stems, &last_created_stem, *stem_ptr);
         }
       }
     });
   DOC("initialize state propagation")
-  for_each_n(
-    begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
-      if (vine.last_history < container_size(vine.history_storage)) {
-        auto &history = sink(at(vine.history_storage, vine.last_history));
-        init_vine_stem_history(&history, stem.stem_id);
-        ++vine.last_history;
-      }
-    });
+  for_each(begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
+    auto pos = step_within(vine.history_storage, &vine.last_history);
+    if (pos < end(vine.history_storage)) {
+      init_vine_stem_history(&sink(pos), stem.stem_id);
+    }
+  });
   DOC("propagate stem state to histories")
-  for_each_n(begin(vine.history_storage), vine.last_history,
-             [](vine_stem_history_header &history) {
-               if (history.stem_id == 0) {
-                 return;
-               }
-               auto stem = source(at(vine.stem_storage, history.stem_id - 1));
-               sink(history.last_point) = stem.end;
-               history.last_point = successor(history.last_point);
-               ++history.point_count;
-             });
+  for_each(begin(vine.history_storage), vine.last_history,
+           [](vine_stem_history_header &history) {
+             if (history.stem_id == 0) {
+               return;
+             }
+             auto stem = source(at(vine.stem_storage, history.stem_id - 1));
+             set_step(&history.last_point, stem.end);
+             ++history.point_count;
+           });
   vec3 active_point_average;
   if (active_points_count > 0) {
     active_point_average =
@@ -878,25 +923,24 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgBeginPath(vg);
     // for now just draw the vine as a series of dots
     auto dot_radius = 0.07;
-    for_each_n(
-      begin(vine.history_storage), vine.last_history,
-      [&](vine_stem_history_header history) {
-        for_each_n(
-          begin(history.path_storage),
-          min(container_size(history.path_storage), history.point_count),
-          [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
-      });
+    for_each(begin(vine.history_storage), vine.last_history,
+             [&](vine_stem_history_header history) {
+               for_each_n(
+                 begin(history.path_storage),
+                 min(container_size(history.path_storage), history.point_count),
+                 [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
+             });
     nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
     nvgFill(vg);
     nvgBeginPath(vg);
     nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
     DOC("draw tips")
     {
-      for_each_n(begin(vine.stem_storage), vine.last_stem,
-                 [&](vine_stem_header stem) {
-                   nvgCircle(vg, stem.start.x, stem.start.y, dot_radius);
-                   nvgCircle(vg, stem.end.x, stem.end.y, 2.0 * dot_radius);
-                 });
+      for_each(begin(vine.stem_storage), vine.last_stem,
+               [&](vine_stem_header stem) {
+                 nvgCircle(vg, stem.start.x, stem.start.y, dot_radius);
+                 nvgCircle(vg, stem.end.x, stem.end.y, 2.0 * dot_radius);
+               });
     }
     nvgFill(vg);
     DOC("draw average active point")
