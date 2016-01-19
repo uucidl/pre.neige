@@ -1,6 +1,7 @@
 /*
   Build instructions:
-  OSX: "clang++ -DOS=OS_OSX -DSTATIC_GLEW -g -std=c++11 -framework System -Wall -Wextra \
+  OSX: "clang++ -DOS=OS_OSX -DSTATIC_GLEW -g -std=c++11 -framework System -Wall
+  -Wextra \
   -Wno-tautological-compare -Wsign-conversion \
   neige.cpp -o neige                                                    \
   -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
@@ -84,11 +85,11 @@ using memory_size = DistanceType<memory_address>;
 static_assert(SizeOf(memory_address) == SizeOf(memory_size),
               "memory_size incorrect for architecture");
 // (Os)
-void fatal() CLANG_ATTRIBUTE(noreturn)
+internal_symbol void fatal() CLANG_ATTRIBUTE(noreturn)
   DOC("kill the current process and return to the OS");
-memory_address vm_alloc(memory_size size)
+internal_symbol memory_address vm_alloc(memory_size size)
   DOC("allocate a memory block from the OS' virtual memory");
-void vm_free(memory_size size, memory_address data)
+internal_symbol void vm_free(memory_size size, memory_address data)
   DOC("release a memory block from the OS");
 // die if bool is false
 #define fatal_ifnot(x)                                                         \
@@ -104,6 +105,17 @@ void vm_free(memory_size size, memory_address data)
 #define IntegralConcept typename
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
+// (WritableConcept)
+#define WritableConcept typename
+template <typename T> struct writable_concept {
+  using writable_type = void;
+};
+template <typename T>
+using Writable = typename writable_concept<T>::writable_type;
+template <typename T> struct writable_concept<PointerOf<T>> {
+  using writable_type = T;
+};
+template <WritableConcept WC> Writable<WC> sink(WC x);
 // (Fixed Array Type)
 template <typename T, memory_size N> constexpr u64 container_size(T(&)[N])
 {
@@ -121,12 +133,12 @@ fixed_array_header<T, N> make_fixed_array_header(T(&array)[N])
   return header;
 }
 template <typename T, memory_size N>
-PointerOf<T> begin(fixed_array_header<T, N> &x)
+PointerOf<T> begin(fixed_array_header<T, N> x)
 {
   return &x[0];
 }
 template <typename T, memory_size N>
-PointerOf<T> end(fixed_array_header<T, N> &x)
+PointerOf<T> end(fixed_array_header<T, N> x)
 {
   return begin(x) + container_size(x);
 }
@@ -134,6 +146,41 @@ template <typename T, memory_size N>
 constexpr u64 container_size(fixed_array_header<T, N> const &)
 {
   return N;
+}
+// (ContainerConcept)
+#define ContainerConcept typename
+template <typename T> struct container_concept {
+  using read_write_ordinate = void;
+};
+template <ContainerConcept C>
+using ReadWriteOrdinate = typename container_concept<C>::read_write_ordinate;
+// (CircularOrdinate)
+template <OrdinateConcept Ordinate> struct circular_ordinate {
+  Ordinate current;
+  Ordinate first;
+  Ordinate last;
+};
+template <OrdinateConcept Ordinate>
+circular_ordinate<Ordinate> successor(circular_ordinate<Ordinate> x)
+{
+  auto result = x;
+  result.current = successor(x.current);
+  if (result.current == x.last) {
+    result.current = x.first;
+  }
+  return result;
+}
+template <OrdinateConcept Ordinate>
+REQUIRES(WritableConcept<Ordinate>) Writable<Ordinate> &sink(
+  struct circular_ordinate<Ordinate> x)
+{
+  return sink(x.current);
+}
+template <OrdinateConcept Ordinate>
+circular_ordinate<Ordinate> make_circular_ordinate(Ordinate first,
+                                                   Ordinate last)
+{
+  return {first, first, last};
 }
 // (Modular Integers)
 #define Integer typename
@@ -196,9 +243,9 @@ template <typename T> T &source(PointerOf<T> x) { return *x; }
 template <typename T> T &sink(PointerOf<T> x) { return *x; }
 template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
 template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
-template <typename T> memory_address AddressOf(T &x)
+template <typename T> memory_address AddressOf(T &xref)
 {
-  return memory_address(&x);
+  return memory_address(&xref);
 }
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op>
@@ -264,10 +311,26 @@ REQUIRES(ValueType(I0) == ValueType(I1))
   }
   return to;
 }
+// (Arithmetics)
+template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
+template <typename T> bool operator==(T a, T b) { return equality(a, b); }
+template <typename T> bool operator!=(T a, T b) { return !(a == b); }
+template <typename T> T operator+(T a, T b) { return addition(a, b); }
+template <typename T> T min(T a, T b) { return a < b ? a : b; }
+template <typename T> T max(T a, T b) { return !(a < b) ? a : b; }
+template <typename N> N square(N n) { return n * n; }
+template <typename T> T interpolate_linear(T a, T b, float64 a_b)
+{
+  return (1.0 - a_b) * a + a_b * b;
+}
 // (Memory Allocation)
 template <typename T, IntegralConcept I> struct counted_range {
   T *first;
   I count;
+};
+template <typename T, IntegralConcept I>
+struct container_concept<counted_range<T, I>> {
+  using read_write_ordinate = PointerOf<T>;
 };
 template <typename T, IntegralConcept I>
 u64 container_size(counted_range<T, I> x)
@@ -275,16 +338,17 @@ u64 container_size(counted_range<T, I> x)
   return x.count;
 }
 template <typename T, IntegralConcept I>
-PointerOf<T> begin(counted_range<T, I> x)
+ReadWriteOrdinate<counted_range<T, I>> begin(counted_range<T, I> x)
 {
   return x.first;
 }
-template <typename T, IntegralConcept I> PointerOf<T> end(counted_range<T, I> x)
+template <typename T, IntegralConcept I>
+ReadWriteOrdinate<counted_range<T, I>> end(counted_range<T, I> x)
 {
   return begin(x) + x.count;
 }
 template <typename T, IntegralConcept I>
-PointerOf<T> at(counted_range<T, I> x, memory_size i)
+ReadWriteOrdinate<counted_range<T, I>> at(counted_range<T, I> x, memory_size i)
 {
   return &x.first[i];
 }
@@ -327,7 +391,8 @@ struct slab_allocator {
   memory_address unallocated_start;
   memory_size size;
 };
-slab_allocator make_slab_allocator(memory_address start, memory_size size)
+internal_symbol slab_allocator
+make_slab_allocator(memory_address start, memory_size size)
 {
   slab_allocator result;
   result.start = start;
@@ -335,7 +400,8 @@ slab_allocator make_slab_allocator(memory_address start, memory_size size)
   result.size = size;
   return result;
 }
-memory_address alloc(slab_allocator *slab_allocator, memory_size size)
+internal_symbol memory_address
+alloc(slab_allocator *slab_allocator, memory_size size)
 {
   // TODO(nicolas): alignment and zeroing
   memory_size current_size =
@@ -345,13 +411,13 @@ memory_address alloc(slab_allocator *slab_allocator, memory_size size)
   slab_allocator->unallocated_start += size;
   return block_start;
 }
-memory_size allocatable_size(slab_allocator *slab_allocator)
+internal_symbol memory_size allocatable_size(slab_allocator *slab_allocator)
 {
   return memory_size(slab_allocator->start + slab_allocator->size -
                      slab_allocator->unallocated_start);
 }
-void free(slab_allocator *slab_allocator, memory_address start,
-          memory_size size)
+internal_symbol void free(slab_allocator *slab_allocator, memory_address start,
+                          memory_size size)
 {
   fatal_ifnot(start == slab_allocator->unallocated_start - size);
   slab_allocator->unallocated_start = start;
@@ -398,20 +464,76 @@ struct DS4Out DOC("Output message for wired connection")
 #pragma pack(pop)
 #include "hidapi/hidapi/hidapi.h"
 // (Cpu)
-float64 cpu_sin(float64 x);
-float64 cpu_cos(float64 x);
-float64 cpu_sqrt(float64 x);
+internal_symbol float64 cpu_sin(float64 x);
+internal_symbol float64 cpu_cos(float64 x);
+internal_symbol float64 cpu_sqrt(float64 x);
+// (Vector Math)
+struct vec3 MODELS(Regular) { float32 x, y, z; };
+internal_symbol vec3 make_vec3(float32 v) { return {v, v, v}; }
+internal_symbol vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
+internal_symbol vec3 make_vec3(float32 x, float32 y, float32 z)
+{
+  return {x, y, z};
+}
+internal_symbol bool equality(vec3 a, vec3 b)
+{
+  return a.x == b.y && a.y == b.y && a.z == b.z;
+};
+internal_symbol bool default_order(vec3 a, vec3 b)
+{
+  return a.x < b.x ? true : a.y < b.y ? true : a.z < b.z;
+}
+internal_symbol vec3 addition(vec3 a, vec3 b)
+{
+  vec3 result;
+  result.x = a.x + b.x;
+  result.y = a.y + b.y;
+  result.z = a.z + b.z;
+  return result;
+}
+internal_symbol vec3 product(vec3 vector, float32 scalar)
+{
+  return vec3{vector.x * scalar, vector.y * scalar, vector.z * scalar};
+}
+internal_symbol vec3 hadamard_product(vec3 a, vec3 b)
+{
+  return vec3{a.x * b.x, a.y * b.y, a.z * b.z};
+}
+internal_symbol vec3 cross_product(vec3 a, vec3 b)
+{
+  return vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+              a.x * b.y - a.y * b.z};
+}
+internal_symbol float32 euclidean_norm(vec3 v)
+{
+  float32 xx = v.x * v.x;
+  float32 yy = v.y * v.y;
+  float32 zz = v.z * v.z;
+  return cpu_sqrt(xx + yy + zz);
+}
+internal_symbol vec3 operator*(vec3 vector, float32 scalar)
+{
+  return product(vector, scalar);
+}
+internal_symbol vec3 operator*(float32 scalar, vec3 vector)
+{
+  return product(vector, scalar);
+}
+internal_symbol vec3 operator-(vec3 a, vec3 b)
+{
+  return addition(a, vec3{-b.x, -b.y, -b.z});
+}
 // (Main)
 #include "nanovg/src/nanovg.h"
 #include "neige_random.hpp"
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
-void vine_effect(Display const &display) TAG("visuals");
+internal_symbol void vine_effect(Display const &display) TAG("visuals");
 global_variable hid_device *global_optional_ds4;
-NVGcontext *nvg_create_context();
-void forget_ds4() { global_optional_ds4 = nullptr; }
-hid_device *query_ds4(u64 micros)
+internal_symbol NVGcontext *nvg_create_context();
+internal_symbol void forget_ds4() { global_optional_ds4 = nullptr; }
+internal_symbol hid_device *query_ds4(u64 micros)
 {
   // TODO(uucidl): real hid support would question the device for its
   // capabilities. Would we gain knowledge about the DS4 gyro min/max?
@@ -432,56 +554,6 @@ hid_device *query_ds4(u64 micros)
   }
   return global_optional_ds4;
 }
-template <typename N> N square(N n) { return n * n; }
-struct vec3 MODELS(Regular) { float32 x, y, z; };
-vec3 make_vec3(float32 v) { return {v, v, v}; }
-vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
-vec3 make_vec3(float32 x, float32 y, float32 z) { return {x, y, z}; }
-bool equality(vec3 a, vec3 b)
-{
-  return a.x == b.y && a.y == b.y && a.z == b.z;
-};
-bool default_order(vec3 a, vec3 b)
-{
-  return a.x < b.x ? true : a.y < b.y ? true : a.z < b.z;
-}
-vec3 addition(vec3 a, vec3 b)
-{
-  vec3 result;
-  result.x = a.x + b.x;
-  result.y = a.y + b.y;
-  result.z = a.z + b.z;
-  return result;
-}
-vec3 product(vec3 vector, float32 scalar)
-{
-  return vec3{vector.x * scalar, vector.y * scalar, vector.z * scalar};
-}
-vec3 hadamard_product(vec3 a, vec3 b)
-{
-  return vec3{a.x * b.x, a.y * b.y, a.z * b.z};
-}
-vec3 cross_product(vec3 a, vec3 b)
-{
-  return vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
-              a.x * b.y - a.y * b.z};
-}
-float32 euclidean_norm(vec3 v)
-{
-  float32 xx = v.x * v.x;
-  float32 yy = v.y * v.y;
-  float32 zz = v.z * v.z;
-  return cpu_sqrt(xx + yy + zz);
-}
-vec3 operator*(vec3 vector, float32 scalar) { return product(vector, scalar); }
-vec3 operator*(float32 scalar, vec3 vector) { return product(vector, scalar); }
-vec3 operator-(vec3 a, vec3 b) { return addition(a, vec3{-b.x, -b.y, -b.z}); }
-template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
-template <typename T> bool operator==(T a, T b) { return equality(a, b); }
-template <typename T> bool operator!=(T a, T b) { return !(a == b); }
-template <typename T> T min(T a, T b) { return a < b ? a : b; }
-template <typename T> T max(T a, T b) { return !(a < b) ? a : b; }
-template <typename T> T operator+(T a, T b) { return addition(a, b); }
 enum GlobalEvents : u64 {
   GlobalEvents_PressedDown = 1 << 0,
 };
@@ -499,7 +571,8 @@ struct polyphonic_voice_header {
   float64 phase_speed;
   audio_sample_header sample;
 };
-void make_voice(polyphonic_voice_header *voice, audio_sample_header sample)
+internal_symbol void make_voice(polyphonic_voice_header *voice,
+                                audio_sample_header sample)
 {
   voice->phase = 0.0;
   voice->phase_speed = 1.0;
@@ -521,6 +594,7 @@ global_variable struct TransientMemory transient_memory;
 global_variable struct MainMemory main_memory;
 void render_next_gl3(unsigned long long micros, Display display)
 {
+  auto saved_frame_allocator = transient_memory.frame_allocator;
   // NOTE(nicolas): we implement the main program logic as well as its rendering
   // here.
   local_state vec3 rgb = {};
@@ -611,125 +685,158 @@ void render_next_gl3(unsigned long long micros, Display display)
     last_micros = micros;
   }
   DOC("main effect") { vine_effect(display); }
+  transient_memory.frame_allocator = saved_frame_allocator;
 }
-void vine_effect(Display const &display) TAG("visuals")
+internal_symbol void vine_effect(Display const &display) TAG("visuals")
 {
-  struct vine_segment_header {
-    vec3 stem_start;
-    vec3 stem_end;
+  struct vine_stem_header {
+    u32 stem_id;
+    vec3 start;
+    vec3 end;
     vec3 growth;
     int bifurcation_bit;
     float32 bifurcation_threshold;
     float32 energy_spent;
-    // history:
+  };
+  struct vine_stem_history_header {
+    u32 stem_id;
     counted_range<vec3, memory_size> path_storage;
-    memory_size last_point_index;
+    circular_ordinate<ReadWriteOrdinate<decltype(path_storage)>> last_point;
     memory_size point_count;
   };
   struct vine_header {
-    counted_range<vine_segment_header, memory_size> segment_storage;
-    memory_size last_segment;
+    counted_range<vine_stem_header, memory_size> stem_storage;
+    memory_size last_stem;
+    counted_range<vine_stem_history_header, memory_size> history_storage;
+    memory_size last_history;
   };
-  auto allocate_vine_segment =
+  auto allocate_vine_stem_history =
     [](slab_allocator *allocator, memory_size max_path_size) {
-      vine_segment_header result;
+      vine_stem_history_header result = {};
       alloc_array(allocator, max_path_size, &result.path_storage);
       return result;
     };
-  auto init_segment = [](vine_segment_header *dest, vec3 start, vec3 growth,
-                         float32 bifurcation_threshold) {
+  auto init_vine_stem_history =
+    [](vine_stem_history_header *dest, u32 stem_id) {
+      auto &y = sink(dest);
+      y.stem_id = stem_id;
+      y.last_point =
+        make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
+      y.point_count = 0;
+    };
+  auto init_vine_stem = [](vine_stem_header *dest, vec3 start, vec3 growth,
+                           float32 bifurcation_threshold, u32 stem_id) {
     auto &y = sink(dest);
-    y.stem_start = start;
-    y.stem_end = start;
+    y.stem_id = stem_id;
+    y.start = start;
+    y.end = start;
     y.growth = growth;
     y.energy_spent = 0.0;
     y.bifurcation_bit = 0;
     y.bifurcation_threshold = bifurcation_threshold;
-    sink(at(y.path_storage, 0)) = y.stem_start;
-    y.last_point_index = 1;
-    y.point_count = 1;
   };
-  auto push_segment = [=](vine_header *dest) -> PointerOf<vine_segment_header> {
+  auto push_vine_stem = [=](vine_header *dest) -> PointerOf<vine_stem_header> {
     auto &y = sink(dest);
-    if (addition_less(y.last_segment, memory_size(1),
-                      container_size(y.segment_storage))) {
-      auto &segment = sink(at(y.segment_storage, y.last_segment));
-      ++y.last_segment;
-      return &segment;
+    if (addition_less(y.last_stem, memory_size(1),
+                      container_size(y.stem_storage))) {
+      auto &stem = sink(at(y.stem_storage, y.last_stem));
+      ++y.last_stem;
+      return &stem;
     } else {
       return nullptr;
     }
   };
+  auto simulation_points_per_second = 60.0;
+  counted_range<vine_stem_header, u32> created_stems;
+  enum { MAX_STEMS_CREATED_PER_FRAME = 16 };
+  alloc_array(&transient_memory.frame_allocator,
+              u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
+  u32 last_created_stem = 0;
   auto allocate_vine =
-    [=](slab_allocator *allocator, memory_size max_segment_count, vec3 start,
+    [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
         vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
       vine_header result;
-      alloc_array(allocator, max_segment_count, &result.segment_storage);
-      for_each_n(begin(result.segment_storage),
-                 container_size(result.segment_storage),
-                 [&](vine_segment_header &y) {
-                   // TODO(nicolas): variable size segments
-                   y = allocate_vine_segment(allocator, max_path_size);
+      alloc_array(allocator, max_stem_count, &result.stem_storage);
+      result.last_stem = 0;
+      alloc_array(allocator, max_stem_count, &result.history_storage);
+      result.last_history = 0;
+      for_each_n(begin(result.history_storage),
+                 container_size(result.history_storage),
+                 [&](vine_stem_history_header &y) {
+                   y = allocate_vine_stem_history(allocator, max_path_size);
                  });
-      result.last_segment = 0;
-      auto segment_ptr = push_segment(&result);
-      if (segment_ptr) {
-        init_segment(segment_ptr, start, growth, bifurcation_threshold);
+      auto stem_ptr = push_vine_stem(&result);
+      if (stem_ptr) {
+        init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
+                       u32(result.last_stem));
+        sink(at(created_stems, last_created_stem)) = *stem_ptr;
+        ++last_created_stem;
       }
       return result;
     };
-  auto simulation_points_per_second = 60.0;
-  vec3 active_points_running_sum = {};
-  u8 active_points_count = 0;
   local_state vine_header vine =
     allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                   {float32(10.0 / simulation_points_per_second),
                    float32(8.0 / simulation_points_per_second), 0.0},
                   0.6, 6 * simulation_points_per_second);
+  vec3 active_points_running_sum = {};
+  u8 active_points_count = 0;
   DOC("grow vine")
   for_each_n(
-    begin(vine.segment_storage), vine.last_segment,
-    [&](vine_segment_header &segment) {
-      auto growth = segment.growth;
-      vec3 const &previous = segment.stem_end;
+    begin(vine.stem_storage), vine.last_stem, [&](vine_stem_header &stem) {
+      auto growth = stem.growth;
+      vec3 const &previous = stem.end;
       vec3 tip = previous + growth;
       vec3 instant_velocity = (tip - previous) * simulation_points_per_second;
       vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
       vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
-      segment.growth = segment.growth + magnetic_force;
-      segment.stem_end = tip;
+      stem.growth = stem.growth + magnetic_force;
+      stem.end = tip;
       if (addition_valid(active_points_count, u8(1))) {
         ++active_points_count;
         active_points_running_sum = active_points_running_sum + tip;
       }
       float growth_cost_j_per_cm = 0.08;
-      auto old_energy_spent = segment.energy_spent;
-      segment.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
-      if (old_energy_spent < segment.bifurcation_threshold &&
-          segment.energy_spent >= segment.bifurcation_threshold) {
-            // bifurcate!
-        segment.energy_spent = 0; // allow regrowth
-        segment.bifurcation_threshold *= 1.1;
-        auto g = segment.growth;
-        auto v = make_vec3(0, 0, segment.bifurcation_bit ? 1 : -1);
+      auto old_energy_spent = stem.energy_spent;
+      stem.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
+      if (old_energy_spent < stem.bifurcation_threshold &&
+          stem.energy_spent >= stem.bifurcation_threshold) {
+        // bifurcate!
+        stem.energy_spent = 0; // allow regrowth
+        stem.bifurcation_threshold *= 1.1;
+        auto g = stem.growth;
+        auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
         g = 0.7 * g + 0.3 * cross_product(g, v);
-        auto segment_ptr = push_segment(&vine);
-        segment.bifurcation_bit = ~segment.bifurcation_bit;
-        if (segment_ptr) {
-          init_segment(segment_ptr, tip, g, 10.0*segment.bifurcation_threshold);
+        auto stem_ptr = push_vine_stem(&vine);
+        stem.bifurcation_bit = ~stem.bifurcation_bit;
+        if (stem_ptr && last_created_stem < container_size(created_stems)) {
+          init_vine_stem(stem_ptr, tip, g, 10.0 * stem.bifurcation_threshold,
+                         u32(vine.last_stem));
+          sink(at(created_stems, last_created_stem)) = *stem_ptr;
+          ++last_created_stem;
         }
       }
-      // collect in history
-      if (addition_less(segment.last_point_index, memory_size(1),
-                        container_size(segment.path_storage))) {
-        sink(at(segment.path_storage, segment.last_point_index)) = tip;
-        ++segment.last_point_index;
-        ++segment.point_count;
-      } else {
-        // rewind
-        segment.last_point_index = 0;
+    });
+  DOC("initialize state propagation")
+  for_each_n(
+    begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
+      if (vine.last_history < container_size(vine.history_storage)) {
+        auto &history = sink(at(vine.history_storage, vine.last_history));
+        init_vine_stem_history(&history, stem.stem_id);
+        ++vine.last_history;
       }
     });
+  DOC("propagate stem state to histories")
+  for_each_n(begin(vine.history_storage), vine.last_history,
+             [](vine_stem_history_header &history) {
+               if (history.stem_id == 0) {
+                 return;
+               }
+               auto stem = source(at(vine.stem_storage, history.stem_id - 1));
+               sink(history.last_point) = stem.end;
+               history.last_point = successor(history.last_point);
+               ++history.point_count;
+             });
   vec3 active_point_average;
   if (active_points_count > 0) {
     active_point_average =
@@ -772,11 +879,11 @@ void vine_effect(Display const &display) TAG("visuals")
     // for now just draw the vine as a series of dots
     auto dot_radius = 0.07;
     for_each_n(
-      begin(vine.segment_storage), vine.last_segment,
-      [&](vine_segment_header segment) {
+      begin(vine.history_storage), vine.last_history,
+      [&](vine_stem_history_header history) {
         for_each_n(
-          begin(segment.path_storage),
-          min(container_size(segment.path_storage), segment.point_count),
+          begin(history.path_storage),
+          min(container_size(history.path_storage), history.point_count),
           [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
       });
     nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
@@ -785,12 +892,10 @@ void vine_effect(Display const &display) TAG("visuals")
     nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
     DOC("draw tips")
     {
-      for_each_n(begin(vine.segment_storage), vine.last_segment,
-                 [&](vine_segment_header segment) {
-                   nvgCircle(vg, segment.stem_start.x, segment.stem_start.y,
-                             dot_radius);
-                   nvgCircle(vg, segment.stem_end.x, segment.stem_end.y,
-                             2.0 * dot_radius);
+      for_each_n(begin(vine.stem_storage), vine.last_stem,
+                 [&](vine_stem_header stem) {
+                   nvgCircle(vg, stem.start.x, stem.start.y, dot_radius);
+                   nvgCircle(vg, stem.end.x, stem.end.y, 2.0 * dot_radius);
                  });
     }
     nvgFill(vg);
@@ -814,8 +919,8 @@ struct music_header {
   counted_range<music_event, memory_size> events;
   u32 last_step;
 };
-music_header alloc_music_header(slab_allocator *allocator,
-                                memory_size max_event_count)
+internal_symbol music_header
+alloc_music_header(slab_allocator *allocator, memory_size max_event_count)
 {
   music_header result;
   alloc_array(allocator, max_event_count, &result.events_storage);
@@ -824,7 +929,8 @@ music_header alloc_music_header(slab_allocator *allocator,
   result.last_step = 1;
   return result;
 }
-void push_music_event(music_header *music_header, u32 step, s8 semitones)
+internal_symbol void push_music_event(music_header *music_header, u32 step,
+                                      s8 semitones)
 {
   fatal_ifnot(addition_less(container_size(music_header->events),
                             memory_size(1),
@@ -838,17 +944,13 @@ global_variable audio_sample_header global_audio_samples[1];
 global_variable u8 global_audio_sample_index = 0;
 global_variable music_header global_music;
 global_variable u8 global_music_index = 0;
-audio_sample_header get_audio_sample()
+internal_symbol audio_sample_header get_audio_sample()
 {
   return global_audio_samples[global_audio_sample_index];
 }
-template <typename T> T interpolate_linear(T a, T b, float64 a_b)
-{
-  return (1.0 - a_b) * a + a_b * b;
-}
-double mix_audio_sample(audio_sample_header audio_sample, double time,
-                        double time_increment, float64 *destination,
-                        u32 mix_count)
+internal_symbol double mix_audio_sample(audio_sample_header audio_sample,
+                                        double time, double time_increment,
+                                        float64 *destination, u32 mix_count)
 {
   double attack_time = 48.0;
   double decay_time = 2 * 48.0;
@@ -878,12 +980,12 @@ double mix_audio_sample(audio_sample_header audio_sample, double time,
   });
   return time;
 }
-u8 bit_scan_reverse32(u32 x);
+internal_symbol u8 bit_scan_reverse32(u32 x);
 static_assert(FixedArrayCount(polyphony_header::voices) >=
                 8 * SizeOf(polyphony_header::free_voices),
               "too small bitflag");
 extern "C" double pow(double m, double e); // TODO(uucidl): replace libc pow
-s8 major_scale_semitones(s8 major_scale_offset)
+internal_symbol s8 major_scale_semitones(s8 major_scale_offset)
 {
   u8 scale[] = {
     0, 2, 4, 5, 7, 9, 11,
@@ -900,11 +1002,12 @@ s8 major_scale_semitones(s8 major_scale_offset)
   }
   return 12 * octave_offset + scale[major_scale_offset];
 }
-float64 semitones_freq_hz(float64 root_freq_hz, s8 semitones)
+internal_symbol float64 semitones_freq_hz(float64 root_freq_hz, s8 semitones)
 {
   return root_freq_hz * pow(2.0, semitones / 12.0);
 }
-float64 major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
+internal_symbol float64
+major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
 {
   s8 note_semitones = major_scale_semitones(major_scale_offset);
   float64 freq_hz = semitones_freq_hz(root_freq_hz, note_semitones);
@@ -959,8 +1062,9 @@ void render_next_2chn_48khz_audio(unsigned long long now_micros,
     }
   }
 }
-audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
-                                      u32 sample_count, float64 data_rate_hz)
+internal_symbol audio_sample_header
+make_audio_sample(slab_allocator *slab_allocator, u32 sample_count,
+                  float64 data_rate_hz)
 {
   audio_sample_header header;
   header.start_time = 0.0;
@@ -971,7 +1075,8 @@ audio_sample_header make_audio_sample(slab_allocator *slab_allocator,
 }
 URL("http://www.intel.com/content/www/us/en/processors/"
     "architectures-software-developer-manuals.html")
-void fill_sample_with_sin(audio_sample_header sample, double frequency_hz)
+internal_symbol void fill_sample_with_sin(audio_sample_header sample,
+                                          double frequency_hz)
 {
   float64 const PI = 3.141592653589793238463;
   float64 phase_increment = 2.0 * PI * frequency_hz / sample.data_rate_hz;
@@ -1127,7 +1232,7 @@ int main(int argc, char **argv) DOC("application entry point")
 }
 // (CPU)
 #if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
-float64 cpu_sin(float64 x)
+internal_symbol float64 cpu_sin(float64 x)
 {
   float64 y;
   asm("fld %0\n"
@@ -1136,7 +1241,7 @@ float64 cpu_sin(float64 x)
       : "f"(x));
   return y;
 }
-float64 cpu_cos(float64 x)
+internal_symbol float64 cpu_cos(float64 x)
 {
   float64 y;
   asm("fld %0\n"
@@ -1145,7 +1250,7 @@ float64 cpu_cos(float64 x)
       : "f"(x));
   return y;
 }
-float64 cpu_sqrt(float64 x)
+internal_symbol float64 cpu_sqrt(float64 x)
 {
   float64 y;
   asm("fld %0\n"
@@ -1154,7 +1259,7 @@ float64 cpu_sqrt(float64 x)
       : "f"(x));
   return y;
 }
-u8 bit_scan_reverse32(u32 x)
+internal_symbol u8 bit_scan_reverse32(u32 x)
 {
   u32 y;
   asm("bsrl %1,%0" : "=r"(y) : "r"(x));
@@ -1165,8 +1270,8 @@ u8 bit_scan_reverse32(u32 x)
 #if defined(OS_OSX)
 #include <mach/mach.h> // for vm_allocate
 #include <unistd.h>    // for _exit
-void fatal() { _exit(-3); }
-memory_address vm_alloc(memory_size size)
+internal_symbol void fatal() { _exit(-3); }
+internal_symbol memory_address vm_alloc(memory_size size)
 {
   fatal_ifnot(size > 0);
   vm_address_t address = 0;
@@ -1174,7 +1279,7 @@ memory_address vm_alloc(memory_size size)
   fatal_ifnot(KERN_SUCCESS == vm_allocate_result);
   return memory_address(address);
 }
-void vm_free(memory_size size, memory_address address)
+internal_symbol void vm_free(memory_size size, memory_address address)
 {
   auto vm_deallocate_result =
     vm_deallocate(mach_task_self(), vm_address_t(address), size);
@@ -1204,7 +1309,7 @@ void vm_free(memory_size size, memory_address address)
 #include "nanovg/src/nanovg.c"
 #include "nanovg/src/nanovg.h"
 #include "nanovg/src/nanovg_gl.h"
-NVGcontext *nvg_create_context()
+internal_symbol NVGcontext *nvg_create_context()
 {
   u32 flags = NVG_ANTIALIAS | NVG_STENCIL_STROKES;
   flags |= NVG_DEBUG;
