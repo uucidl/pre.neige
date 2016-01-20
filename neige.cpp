@@ -386,6 +386,21 @@ template <typename T> T interpolate_linear(T a, T b, float64 a_b)
 {
   return (1.0 - a_b) * a + a_b * b;
 }
+template <typename T> T lower_division(T x, T divisor)
+{
+  auto division = x / divisor;
+  T result;
+  if (division < 0) {
+    result = divisor * (-int(-division));
+  } else {
+    result = divisor * int(x / divisor);
+  }
+  return result;
+}
+template <typename T> T upper_division(T x, T divisor)
+{
+  return -lower_division(-x, divisor);
+}
 // (Memory Allocation)
 template <typename T, IntegralConcept I> struct counted_range {
   T *first;
@@ -941,32 +956,16 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   }
   // draw vines
   local_state vec3 camera_center = {};
-  vec3 camera_halfsize = 40.0 / display.framebuffer_width_px *
-                         vec3{float32(display.framebuffer_width_px),
-                              float32(display.framebuffer_height_px), 0.0f};
+  local_state vec3 camera_halfsize =
+    40.0 / display.framebuffer_width_px *
+    vec3{float32(display.framebuffer_width_px),
+         float32(display.framebuffer_height_px), 0.0f};
   DOC("janky camera physics focusing on average point")
   {
-    local_state vec3 camera_speed = {};
-    auto delta_to_POI = active_point_average - camera_center;
-    if (delta_to_POI.x > 0.40 * camera_halfsize.x) {
-      camera_speed.x += 0.2;
-    } else if (delta_to_POI.x < -0.40 * camera_halfsize.x) {
-      camera_speed.x += -0.2;
-    } else if (square(0.05 * camera_halfsize.x - delta_to_POI.x) < 0.1) {
-      // nothing
-    } else {
-      camera_speed.x += 0.004 * (delta_to_POI.x - camera_speed.x);
-    }
-    if (delta_to_POI.y > 0.40 * camera_halfsize.y) {
-      camera_speed.y += 0.2;
-    } else if (delta_to_POI.y < -0.40 * camera_halfsize.y) {
-      camera_speed.y += -0.2;
-    } else if (square(0.05 * camera_halfsize.y - delta_to_POI.y) < 0.1) {
-      // nothing
-    } else {
-      camera_speed.y += 0.004 * (delta_to_POI.y - camera_speed.y);
-    }
-    camera_center = camera_center + camera_speed;
+    local_state vec3 point_of_interest = active_point_average;
+    point_of_interest =
+      interpolate_linear(point_of_interest, active_point_average, 0.05);
+    camera_center = point_of_interest;
   }
   local_state auto vg = nvg_create_context();
   glClear(GL_STENCIL_BUFFER_BIT);
@@ -983,6 +982,29 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgTranslate(vg, center_in_screen_coordinates.x,
                  center_in_screen_coordinates.y);
     nvgScale(vg, cm_to_display, -cm_to_display);
+    DOC("grid to get a sense of the space")
+    {
+      nvgBeginPath(vg);
+      nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
+      float32 stepx_cm = 1;
+      float32 maxy = camera_center.y + camera_halfsize.y;
+      float32 miny = camera_center.y - camera_halfsize.y;
+      float32 minx = camera_center.x - camera_halfsize.x;
+      float32 maxx = camera_center.x + camera_halfsize.x;
+      float32 grid_minx = lower_division(minx, stepx_cm);
+      float32 grid_maxx = upper_division(maxx, stepx_cm);
+      float32 grid_miny = lower_division(miny, stepx_cm);
+      float32 grid_maxy = upper_division(maxy, stepx_cm);
+      for (float32 x = grid_minx; x < grid_maxx; x += stepx_cm) {
+        nvgMoveTo(vg, x, maxy);
+        nvgLineTo(vg, x, miny);
+      }
+      for (float32 y = grid_miny; y < grid_maxy; y += stepx_cm) {
+        nvgMoveTo(vg, maxx, y);
+        nvgLineTo(vg, minx, y);
+      }
+      nvgFill(vg);
+    }
     nvgBeginPath(vg);
     // for now just draw the vine as a series of dots
     auto dot_radius = 0.07;
