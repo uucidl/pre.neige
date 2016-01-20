@@ -105,6 +105,15 @@ internal_symbol void vm_free(memory_size size, memory_address data)
 #define IntegralConcept typename
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
+// (ReadableConcept)
+#define ReadableConcept typename
+template <typename T> struct readable_concept {
+  using readable_type = void;
+};
+template <typename T>
+using Readable = typename readable_concept<T>::readable_type;
+template <ReadableConcept RC, typename Check = Readable<RC>>
+Readable<RC> source(RC x);
 // (WritableConcept)
 #define WritableConcept typename
 template <typename T> struct writable_concept {
@@ -112,9 +121,6 @@ template <typename T> struct writable_concept {
 };
 template <typename T>
 using Writable = typename writable_concept<T>::writable_type;
-template <typename T> struct writable_concept<PointerOf<T>> {
-  using writable_type = T;
-};
 template <WritableConcept WC, typename Check = Writable<WC>>
 Writable<WC> sink(WC x);
 // (Fixed Array Type)
@@ -162,6 +168,16 @@ template <OrdinateConcept Ordinate> struct circular_ordinate {
   Ordinate last;
 };
 template <OrdinateConcept Ordinate>
+circular_ordinate<Ordinate> predecessor(circular_ordinate<Ordinate> x)
+{
+  auto result = x;
+  if (result.current == x.first) {
+    result.current = x.last;
+  }
+  result.current = predecessor(result.current);
+  return result;
+}
+template <OrdinateConcept Ordinate>
 circular_ordinate<Ordinate> successor(circular_ordinate<Ordinate> x)
 {
   auto result = x;
@@ -176,10 +192,20 @@ struct writable_concept<circular_ordinate<Ordinate>> {
   using writable_type = Writable<Ordinate>;
 };
 template <OrdinateConcept Ordinate>
+struct readable_concept<circular_ordinate<Ordinate>> {
+  using readable_type = Readable<Ordinate>;
+};
+template <OrdinateConcept Ordinate>
 REQUIRES(WritableConcept<Ordinate>) Writable<Ordinate> &sink(
   struct circular_ordinate<Ordinate> x)
 {
   return sink(x.current);
+}
+template <OrdinateConcept Ordinate>
+REQUIRES(ReadableConcept<Ordinate>) Readable<Ordinate> const
+  &source(struct circular_ordinate<Ordinate> x)
+{
+  return source(x.current);
 }
 template <OrdinateConcept Ordinate>
 circular_ordinate<Ordinate> make_circular_ordinate(Ordinate first,
@@ -244,8 +270,20 @@ template <Integer I> bool addition_valid(I x, I addand)
 template <IntegralConcept I> bool zero(I x) { return x == I(0); }
 template <IntegralConcept I> I successor(I x) { return x + 1; }
 template <IntegralConcept I> I predecessor(I x) { return x - 1; }
-template <typename T> T &source(PointerOf<T> x) { return *x; }
-template <typename T> T &sink(PointerOf<T> x) { return *x; }
+template <typename T> struct readable_concept<PointerOf<T>> {
+  using readable_type = T &; // at least readable, also writable
+};
+template <typename T> struct writable_concept<PointerOf<T>> {
+  using writable_type = T &;
+};
+template <typename T> Readable<PointerOf<T>> source(PointerOf<T> x)
+{
+  return *x;
+}
+template <typename T> Writable<PointerOf<T>> &sink(PointerOf<T> x)
+{
+  return *x;
+}
 template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
 template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
 template <typename T> memory_address AddressOf(T &xref)
@@ -556,12 +594,20 @@ internal_symbol vec3 cross_product(vec3 a, vec3 b)
   return vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
               a.x * b.y - a.y * b.z};
 }
-internal_symbol float32 euclidean_norm(vec3 v)
+internal_symbol float32 squared_euclidean_norm(vec3 v)
 {
   float32 xx = v.x * v.x;
   float32 yy = v.y * v.y;
   float32 zz = v.z * v.z;
-  return cpu_sqrt(xx + yy + zz);
+  return xx + yy + zz;
+}
+internal_symbol float32 euclidean_norm(vec3 v)
+{
+  return cpu_sqrt(squared_euclidean_norm(v));
+}
+internal_symbol float32 squared_euclidean_distance(vec3 a, vec3 b)
+{
+  return squared_euclidean_norm(addition(b, product(a, -1)));
 }
 internal_symbol vec3 operator*(vec3 vector, float32 scalar)
 {
@@ -753,14 +799,14 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   struct vine_stem_history_header {
     u32 stem_id;
     counted_range<vec3, memory_size> path_storage;
-    circular_ordinate<ReadWriteOrdinate<decltype(path_storage)>> last_point;
+    circular_ordinate<ReadWriteOrdinate<decltype(path_storage)>> last_point_pos;
     memory_size point_count;
   };
   struct vine_header {
     counted_range<vine_stem_header, memory_size> stem_storage;
-    vine_stem_header *last_stem;
+    vine_stem_header *last_stem_pos;
     counted_range<vine_stem_history_header, memory_size> history_storage;
-    vine_stem_history_header *last_history;
+    vine_stem_history_header *last_history_pos;
   };
   auto allocate_vine_stem_history =
     [](slab_allocator *allocator, memory_size max_path_size) {
@@ -772,7 +818,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     [](vine_stem_history_header *dest, u32 stem_id) {
       auto &y = sink(dest);
       y.stem_id = stem_id;
-      y.last_point =
+      y.last_point_pos =
         make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
       y.point_count = 0;
     };
@@ -789,7 +835,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   };
   auto push_vine_stem = [=](vine_header *dest) -> PointerOf<vine_stem_header> {
     auto &y = sink(dest);
-    auto stem_pos = step_within(y.stem_storage, &y.last_stem);
+    auto stem_pos = step_within(y.stem_storage, &y.last_stem_pos);
     if (stem_pos < end(y.stem_storage)) {
       return &sink(stem_pos);
     } else {
@@ -807,9 +853,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
       vine_header result;
       alloc_array(allocator, max_stem_count, &result.stem_storage);
-      result.last_stem = begin(result.stem_storage);
+      result.last_stem_pos = begin(result.stem_storage);
       alloc_array(allocator, max_stem_count, &result.history_storage);
-      result.last_history = begin(result.history_storage);
+      result.last_history_pos = begin(result.history_storage);
       for_each_n(begin(result.history_storage),
                  container_size(result.history_storage),
                  [&](vine_stem_history_header &y) {
@@ -818,7 +864,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       auto stem_ptr = push_vine_stem(&result);
       if (stem_ptr) {
         init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
-                       u32(result.last_stem - begin(result.stem_storage)));
+                       u32(result.last_stem_pos - begin(result.stem_storage)));
         set_step_within(created_stems, &last_created_stem, *stem_ptr);
       }
       return result;
@@ -832,7 +878,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   u8 active_points_count = 0;
   DOC("grow vine")
   for_each(
-    begin(vine.stem_storage), vine.last_stem, [&](vine_stem_header &stem) {
+    begin(vine.stem_storage), vine.last_stem_pos, [&](vine_stem_header &stem) {
       auto growth = stem.growth;
       vec3 const &previous = stem.end;
       vec3 tip = previous + growth;
@@ -860,27 +906,31 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         auto stem_ptr = push_vine_stem(&vine);
         if (stem_ptr) {
           init_vine_stem(stem_ptr, tip, g, 10.0 * stem.bifurcation_threshold,
-                         u32(vine.last_stem - begin(vine.stem_storage)));
+                         u32(vine.last_stem_pos - begin(vine.stem_storage)));
           set_step_within(created_stems, &last_created_stem, *stem_ptr);
         }
       }
     });
   DOC("initialize state propagation")
   for_each(begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
-    auto pos = step_within(vine.history_storage, &vine.last_history);
+    auto pos = step_within(vine.history_storage, &vine.last_history_pos);
     if (pos < end(vine.history_storage)) {
       init_vine_stem_history(&sink(pos), stem.stem_id);
     }
   });
   DOC("propagate stem state to histories")
-  for_each(begin(vine.history_storage), vine.last_history,
+  for_each(begin(vine.history_storage), vine.last_history_pos,
            [](vine_stem_history_header &history) {
              if (history.stem_id == 0) {
                return;
              }
              auto stem = source(at(vine.stem_storage, history.stem_id - 1));
-             set_step(&history.last_point, stem.end);
-             ++history.point_count;
+             if (squared_euclidean_distance(
+                   source(predecessor(history.last_point_pos)), stem.end) >=
+                 square(0.1)) {
+               set_step(&history.last_point_pos, stem.end);
+               ++history.point_count;
+             }
            });
   vec3 active_point_average;
   if (active_points_count > 0) {
@@ -936,7 +986,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgBeginPath(vg);
     // for now just draw the vine as a series of dots
     auto dot_radius = 0.07;
-    for_each(begin(vine.history_storage), vine.last_history,
+    for_each(begin(vine.history_storage), vine.last_history_pos,
              [&](vine_stem_history_header history) {
                for_each_n(
                  begin(history.path_storage),
@@ -949,19 +999,20 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
     DOC("draw tips")
     {
-      for_each(begin(vine.stem_storage), vine.last_stem,
+      for_each(begin(vine.stem_storage), vine.last_stem_pos,
                [&](vine_stem_header stem) {
                  nvgCircle(vg, stem.start.x, stem.start.y, dot_radius);
                  nvgCircle(vg, stem.end.x, stem.end.y, 2.0 * dot_radius);
                });
     }
     nvgFill(vg);
-    DOC("draw average active point")
+    DOC("draw average active point + camera")
     {
       nvgBeginPath(vg);
       nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
       nvgCircle(vg, active_point_average.x, active_point_average.y,
-                5 * dot_radius);
+                0.75 * dot_radius);
+      nvgCircle(vg, camera_center.x, camera_center.y, 0.5 * dot_radius);
       nvgFill(vg);
     }
     nvgEndFrame(vg);
