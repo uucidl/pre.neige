@@ -11,7 +11,6 @@
 /*
   Jump to (Main) to find the program.
   TAG(project)
-   - TODO(nicolas): follow "center" of vine
    - TODO(nicolas): load sample
  */
 // (Platform Configuration)
@@ -56,6 +55,7 @@ using s8 = signed char;
 using s16 = signed short;
 using s32 = signed int;
 using s64 = signed long;
+using bool32 = u32;
 using float32 = float;
 using float64 = double;
 static_assert(sizeof(u8) == 1, "u8");
@@ -801,13 +801,15 @@ void render_next_gl3(unsigned long long micros, Display display)
   transient_memory.frame_allocator = saved_frame_allocator;
 }
 internal_symbol void vine_effect(Display const &display) TAG("visuals")
+  DOC("growing a plant like organism")
 {
   struct vine_stem_header {
     u32 stem_id;
     vec3 start;
     vec3 end;
     vec3 growth;
-    int bifurcation_bit;
+    bool32 bifurcation_bit;
+    u32 generation_count;
     float32 bifurcation_threshold;
     float32 energy_spent;
   };
@@ -837,17 +839,19 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
       y.point_count = 0;
     };
-  auto init_vine_stem = [](vine_stem_header *dest, vec3 start, vec3 growth,
-                           float32 bifurcation_threshold, u32 stem_id) {
-    auto &y = sink(dest);
-    y.stem_id = stem_id;
-    y.start = start;
-    y.end = start;
-    y.growth = growth;
-    y.energy_spent = 0.0;
-    y.bifurcation_bit = 0;
-    y.bifurcation_threshold = bifurcation_threshold;
-  };
+  auto init_vine_stem =
+    [](vine_stem_header *dest, vec3 start, vec3 growth,
+       float32 bifurcation_threshold, u32 stem_id, u32 generation_count) {
+      auto &y = sink(dest);
+      y.stem_id = stem_id;
+      y.start = start;
+      y.end = start;
+      y.growth = growth;
+      y.energy_spent = 0.0;
+      y.bifurcation_bit = 0;
+      y.generation_count = generation_count;
+      y.bifurcation_threshold = bifurcation_threshold;
+    };
   auto push_vine_stem = [=](vine_header *dest) -> PointerOf<vine_stem_header> {
     auto &y = sink(dest);
     auto stem_pos = step_within(y.stem_storage, &y.last_stem_pos);
@@ -863,27 +867,27 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   alloc_array(&transient_memory.frame_allocator,
               u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
   vine_stem_header *last_created_stem = begin(created_stems);
-  auto allocate_vine =
-    [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
-        vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
-      vine_header result;
-      alloc_array(allocator, max_stem_count, &result.stem_storage);
-      result.last_stem_pos = begin(result.stem_storage);
-      alloc_array(allocator, max_stem_count, &result.history_storage);
-      result.last_history_pos = begin(result.history_storage);
-      for_each_n(begin(result.history_storage),
-                 container_size(result.history_storage),
-                 [&](vine_stem_history_header &y) {
-                   y = allocate_vine_stem_history(allocator, max_path_size);
-                 });
-      auto stem_ptr = push_vine_stem(&result);
-      if (stem_ptr) {
-        init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
-                       u32(result.last_stem_pos - begin(result.stem_storage)));
-        set_step_within(created_stems, &last_created_stem, *stem_ptr);
-      }
-      return result;
-    };
+  auto allocate_vine = [&](
+    slab_allocator *allocator, memory_size max_stem_count, vec3 start,
+    vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+    vine_header result;
+    alloc_array(allocator, max_stem_count, &result.stem_storage);
+    result.last_stem_pos = begin(result.stem_storage);
+    alloc_array(allocator, max_stem_count, &result.history_storage);
+    result.last_history_pos = begin(result.history_storage);
+    for_each_n(begin(result.history_storage),
+               container_size(result.history_storage),
+               [&](vine_stem_history_header &y) {
+                 y = allocate_vine_stem_history(allocator, max_path_size);
+               });
+    auto stem_ptr = push_vine_stem(&result);
+    if (stem_ptr) {
+      init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
+                     u32(result.last_stem_pos - begin(result.stem_storage)), 0);
+      set_step_within(created_stems, &last_created_stem, *stem_ptr);
+    }
+    return result;
+  };
   local_state vine_header vine =
     allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
                   {float32(10.0 / simulation_points_per_second),
@@ -894,25 +898,36 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   DOC("grow vine")
   for_each(
     begin(vine.stem_storage), vine.last_stem_pos, [&](vine_stem_header &stem) {
-      auto growth = stem.growth;
       vec3 const &previous = stem.end;
-      vec3 tip = previous + growth;
-      vec3 instant_velocity = (tip - previous) * simulation_points_per_second;
-      vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
-      vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
-      stem.growth = stem.growth + magnetic_force;
-      stem.end = tip;
-      if (addition_valid(active_points_count, u8(1))) {
-        ++active_points_count;
-        active_points_running_sum = active_points_running_sum + tip;
+      vec3 growth;
+      {
+        vec3 instant_velocity = stem.growth * simulation_points_per_second;
+        vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
+        vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
+        growth = stem.growth + magnetic_force;
       }
+      vec3 tip = previous + growth;
       float growth_cost_j_per_cm = 0.08;
       auto old_energy_spent = stem.energy_spent;
-      stem.energy_spent += growth_cost_j_per_cm * euclidean_norm(growth);
-      if (old_energy_spent < stem.bifurcation_threshold &&
-          stem.energy_spent >= stem.bifurcation_threshold) {
+      auto new_energy_spent =
+        old_energy_spent + growth_cost_j_per_cm * euclidean_norm(growth);
+      auto should_sprout = stem.generation_count <= 1 &&
+                           old_energy_spent < stem.bifurcation_threshold &&
+                           new_energy_spent >= stem.bifurcation_threshold;
+      if (should_sprout) {
+        new_energy_spent = 0; // reset to delay next bifurcation
+      }
+      auto can_grow = new_energy_spent < stem.bifurcation_threshold;
+      if (can_grow) {
+        stem.growth = growth;
+        stem.end = tip;
+        if (addition_valid(active_points_count, u8(1))) {
+          ++active_points_count;
+          active_points_running_sum = active_points_running_sum + tip;
+        }
+      }
+      if (should_sprout) {
         // bifurcate!
-        stem.energy_spent = 0; // allow regrowth
         stem.bifurcation_threshold *= 1.1;
         auto g = stem.growth;
         auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
@@ -920,11 +935,13 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         stem.bifurcation_bit = ~stem.bifurcation_bit;
         auto stem_ptr = push_vine_stem(&vine);
         if (stem_ptr) {
-          init_vine_stem(stem_ptr, tip, g, 10.0 * stem.bifurcation_threshold,
-                         u32(vine.last_stem_pos - begin(vine.stem_storage)));
+          init_vine_stem(stem_ptr, tip, g, 0.5 * stem.bifurcation_threshold,
+                         u32(vine.last_stem_pos - begin(vine.stem_storage)),
+                         successor(stem.generation_count));
           set_step_within(created_stems, &last_created_stem, *stem_ptr);
         }
       }
+      stem.energy_spent = new_energy_spent;
     });
   DOC("initialize state propagation")
   for_each(begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
@@ -942,7 +959,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
              auto stem = source(at(vine.stem_storage, history.stem_id - 1));
              if (squared_euclidean_distance(
                    source(predecessor(history.last_point_pos)), stem.end) >=
-                 square(0.1)) {
+                 square(0.3)) {
                set_step(&history.last_point_pos, stem.end);
                ++history.point_count;
              }
@@ -983,7 +1000,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                  center_in_screen_coordinates.y);
     nvgScale(vg, cm_to_display, -cm_to_display);
     DOC("grid to get a sense of the space")
-    {
+    if (0) {
       nvgBeginPath(vg);
       nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
       float32 stepx_cm = 1;
