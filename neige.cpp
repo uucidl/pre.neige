@@ -374,8 +374,20 @@ REQUIRES(ValueType(I0) == ValueType(I1))
   }
   return to;
 }
+// (Numbers>
+#define NumberConcept typename
+template <NumberConcept N> struct number_concept {
+  /* static constexpr void min; */
+  /* static constexpr void max; */
+};
+template <typename T> using Number = number_concept<T>;
+template <> struct number_concept<float32> {
+  static constexpr float32 min = -2e38;
+  static constexpr float32 max = +2e38;
+};
 // (Arithmetics)
-template <typename T> bool operator<(T a, T b) { return default_order(a, b); }
+template <typename T> T absolute_value(T x) { return x < T(0) ? -x : x; }
+template <typename T> bool operator<(T a, T b) { return natural_order(a, b); }
 template <typename T> bool operator==(T a, T b) { return equality(a, b); }
 template <typename T> bool operator!=(T a, T b) { return !(a == b); }
 template <typename T> T operator+(T a, T b) { return addition(a, b); }
@@ -569,9 +581,16 @@ struct DS4Out DOC("Output message for wired connection")
 #pragma pack(pop)
 #include "hidapi/hidapi/hidapi.h"
 // (Cpu)
-internal_symbol float64 cpu_sin(float64 x);
-internal_symbol float64 cpu_cos(float64 x);
-internal_symbol float64 cpu_sqrt(float64 x);
+internal_symbol inline float64 cpu_abs(float64 x);
+internal_symbol inline float64 cpu_sin(float64 x);
+internal_symbol inline float64 cpu_cos(float64 x);
+internal_symbol inline float64 cpu_sqrt(float64 x);
+template <> inline float32 absolute_value(float32 x)
+{
+  auto result = cpu_abs(x);
+  return result;
+}
+template <> inline float64 absolute_value(float64 x) { return cpu_abs(x); }
 // (Vector Math)
 struct vec3 MODELS(Regular) { float32 x, y, z; };
 internal_symbol vec3 make_vec3(float32 v) { return {v, v, v}; }
@@ -635,6 +654,48 @@ internal_symbol vec3 operator*(float32 scalar, vec3 vector)
 internal_symbol vec3 operator-(vec3 a, vec3 b)
 {
   return addition(a, vec3{-b.x, -b.y, -b.z});
+}
+struct aabb2 MODELS(SemiRegular)
+{
+  float32 min_x;
+  float32 max_x;
+  float32 min_y;
+  float32 max_y;
+};
+aabb2 zero_aabb2()
+{
+  aabb2 result;
+  result.min_x = result.min_y = Number<float32>::max;
+  result.max_x = result.max_y = Number<float32>::min;
+  return result;
+}
+aabb2 cover(aabb2 bounding_box, float32 point_x, float32 point_y)
+{
+  // TODO(nicolas): extract min and max in one step
+  bounding_box.min_x = min(bounding_box.min_x, point_x);
+  bounding_box.max_x = max(bounding_box.max_x, point_x);
+  bounding_box.min_y = min(bounding_box.min_y, point_y);
+  bounding_box.max_y = max(bounding_box.max_y, point_y);
+  return bounding_box;
+}
+aabb2 translate(aabb2 bounding_box, float32 delta_x, float32 delta_y)
+{
+  bounding_box.min_x += delta_x;
+  bounding_box.max_x += delta_x;
+  bounding_box.min_y += delta_y;
+  bounding_box.max_y += delta_y;
+  return bounding_box;
+}
+aabb2 make_symmetric(aabb2 bb)
+{
+  aabb2 result;
+  auto x = max(absolute_value(bb.min_x), absolute_value(bb.max_x));
+  auto y = max(absolute_value(bb.min_y), absolute_value(bb.max_y));
+  result.min_x = -x;
+  result.max_x = x;
+  result.min_y = -y;
+  result.max_y = y;
+  return result;
 }
 // (Main)
 #include "nanovg/src/nanovg.h"
@@ -810,6 +871,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     vec3 growth;
     bool32 bifurcation_bit;
     u32 generation_count;
+    float32 twirl;
     float32 bifurcation_threshold;
     float32 energy_spent;
   };
@@ -849,6 +911,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       y.growth = growth;
       y.energy_spent = 0.0;
       y.bifurcation_bit = 0;
+      y.twirl = 0.0;
       y.generation_count = generation_count;
       y.bifurcation_threshold = bifurcation_threshold;
     };
@@ -889,31 +952,52 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     return result;
   };
   local_state vine_header vine =
-    allocate_vine(&main_memory.allocator, 16, {-7.6, -5.8, 0},
-                  {float32(10.0 / simulation_points_per_second),
-                   float32(8.0 / simulation_points_per_second), 0.0},
-                  0.6, 6 * simulation_points_per_second);
+    allocate_vine(&main_memory.allocator, 64, {-7.6, -5.8, 0},
+                  {float32(8.0 / simulation_points_per_second),
+                   float32(6.0 / simulation_points_per_second), 0.0},
+                  0.3, 3 * simulation_points_per_second);
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
+  aabb2 active_points_bounding_box = zero_aabb2();
+  DOC("always consider start an active point")
+  {
+    auto tip = vine.stem_storage.first->start;
+    active_points_bounding_box =
+      cover(active_points_bounding_box, tip.x, tip.y);
+  }
   DOC("grow vine")
   for_each(
     begin(vine.stem_storage), vine.last_stem_pos, [&](vine_stem_header &stem) {
       vec3 const &previous = stem.end;
       vec3 growth;
+      float32 mag = 0.001 * (stem.bifurcation_bit ? 1 : -1);
       {
         vec3 instant_velocity = stem.growth * simulation_points_per_second;
-        vec3 magnetic_pole = 0.0001 * make_vec3(0.0, 0.0, -1.0);
-        vec3 magnetic_force = cross_product(instant_velocity, magnetic_pole);
-        growth = stem.growth + magnetic_force;
+        float32 norm = 1.0 / euclidean_norm(instant_velocity);
+        vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
+        vec3 magnetic_force =
+          norm * cross_product(instant_velocity, magnetic_pole);
+        vec3 magnetic_pole1 = stem.twirl * make_vec3(0.0, 0.0, 1.0);
+        vec3 magnetic_force1 =
+          norm * cross_product(instant_velocity, magnetic_pole1);
+        growth = stem.growth + magnetic_force + magnetic_force1;
       }
       vec3 tip = previous + growth;
-      float growth_cost_j_per_cm = 0.08;
+      float growth_cost_j_per_cm = 0.09;
       auto old_energy_spent = stem.energy_spent;
       auto new_energy_spent =
         old_energy_spent + growth_cost_j_per_cm * euclidean_norm(growth);
-      auto should_sprout = stem.generation_count <= 1 &&
+      auto should_sprout = stem.generation_count < 3 &&
                            old_energy_spent < stem.bifurcation_threshold &&
                            new_energy_spent >= stem.bifurcation_threshold;
+      auto twirl_threshold = 0.7 * stem.bifurcation_threshold;
+      auto twirl_distance = stem.bifurcation_threshold - twirl_threshold;
+      if (stem.generation_count >= 0 && stem.energy_spent >= twirl_threshold) {
+        stem.twirl = 10 * mag * square((stem.energy_spent - twirl_threshold) /
+                                       twirl_distance);
+      } else {
+        stem.twirl = 0.0;
+      }
       if (should_sprout) {
         new_energy_spent = 0; // reset to delay next bifurcation
       }
@@ -924,6 +1008,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         if (addition_valid(active_points_count, u8(1))) {
           ++active_points_count;
           active_points_running_sum = active_points_running_sum + tip;
+          active_points_bounding_box =
+            cover(active_points_bounding_box, tip.x, tip.y);
         }
       }
       if (should_sprout) {
@@ -931,11 +1017,11 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         stem.bifurcation_threshold *= 1.1;
         auto g = stem.growth;
         auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
-        g = 0.7 * g + 0.3 * cross_product(g, v);
+        g = 0.6 * g + 0.4 * cross_product(g, v);
         stem.bifurcation_bit = ~stem.bifurcation_bit;
         auto stem_ptr = push_vine_stem(&vine);
         if (stem_ptr) {
-          init_vine_stem(stem_ptr, tip, g, 0.5 * stem.bifurcation_threshold,
+          init_vine_stem(stem_ptr, tip, g, 2.0 * stem.bifurcation_threshold,
                          u32(vine.last_stem_pos - begin(vine.stem_storage)),
                          successor(stem.generation_count));
           set_step_within(created_stems, &last_created_stem, *stem_ptr);
@@ -983,6 +1069,21 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     point_of_interest =
       interpolate_linear(point_of_interest, active_point_average, 0.05);
     camera_center = point_of_interest;
+    auto active_points_bb = make_symmetric(translate(
+      active_points_bounding_box, -camera_center.x, -camera_center.y));
+    float32 scale = 1.0;
+    float32 tolerance = 1.2;
+    if (active_points_bb.max_x > camera_halfsize.x) {
+      scale =
+        max(scale, tolerance * active_points_bb.max_x / camera_halfsize.x);
+    }
+    if (active_points_bb.max_y > camera_halfsize.y) {
+      scale =
+        max(scale, tolerance * active_points_bb.max_y / camera_halfsize.y);
+    }
+    auto desired_camera_halfsize = camera_halfsize * scale;
+    camera_halfsize = interpolate_linear(camera_halfsize,
+                                         desired_camera_halfsize, square(0.05));
   }
   local_state auto vg = nvg_create_context();
   glClear(GL_STENCIL_BUFFER_BIT);
@@ -1000,14 +1101,18 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                  center_in_screen_coordinates.y);
     nvgScale(vg, cm_to_display, -cm_to_display);
     DOC("grid to get a sense of the space")
-    if (0) {
+    {
       nvgBeginPath(vg);
       nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
-      float32 stepx_cm = 1;
       float32 maxy = camera_center.y + camera_halfsize.y;
       float32 miny = camera_center.y - camera_halfsize.y;
       float32 minx = camera_center.x - camera_halfsize.x;
       float32 maxx = camera_center.x + camera_halfsize.x;
+      float32 stepx_cm = 1;
+      // ensure grids don't get too dense
+      while ((maxy - miny) / stepx_cm > 100.0) {
+        stepx_cm *= 2;
+      }
       float32 grid_minx = lower_division(minx, stepx_cm);
       float32 grid_maxx = upper_division(maxx, stepx_cm);
       float32 grid_miny = lower_division(miny, stepx_cm);
@@ -1045,7 +1150,17 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                });
     }
     nvgFill(vg);
-    DOC("draw average active point + camera")
+    DOC("draw from start to end")
+    {
+      nvgBeginPath(vg);
+      for_each(begin(vine.stem_storage), vine.last_stem_pos,
+               [&](vine_stem_header stem) {
+                 nvgMoveTo(vg, stem.start.x, stem.start.y);
+                 nvgLineTo(vg, stem.end.x, stem.end.y);
+               });
+      nvgFill(vg);
+    }
+    DOC("draw average active point / camera / bounding boxes")
     {
       nvgBeginPath(vg);
       nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
@@ -1053,6 +1168,20 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                 0.75 * dot_radius);
       nvgCircle(vg, camera_center.x, camera_center.y, 0.5 * dot_radius);
       nvgFill(vg);
+      nvgBeginPath(vg);
+      nvgStrokeWidth(vg, 0.1);
+      nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
+      nvgMoveTo(vg, active_points_bounding_box.min_x,
+                active_points_bounding_box.min_y);
+      nvgLineTo(vg, active_points_bounding_box.max_x,
+                active_points_bounding_box.min_y);
+      nvgLineTo(vg, active_points_bounding_box.max_x,
+                active_points_bounding_box.max_y);
+      nvgLineTo(vg, active_points_bounding_box.min_x,
+                active_points_bounding_box.max_y);
+      nvgLineTo(vg, active_points_bounding_box.min_x,
+                active_points_bounding_box.min_y);
+      nvgStroke(vg);
     }
     nvgEndFrame(vg);
   }
@@ -1379,31 +1508,28 @@ int main(int argc, char **argv) DOC("application entry point")
 }
 // (CPU)
 #if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
+internal_symbol float64 cpu_abs(float64 x)
+{
+  float64 y;
+  asm("fabs" : "=t"(y) : "0"(x));
+  return y;
+}
 internal_symbol float64 cpu_sin(float64 x)
 {
   float64 y;
-  asm("fld %0\n"
-      "fsin"
-      : "=t"(y)
-      : "f"(x));
+  asm("fsin" : "=t"(y) : "0"(x));
   return y;
 }
 internal_symbol float64 cpu_cos(float64 x)
 {
   float64 y;
-  asm("fld %0\n"
-      "fcos"
-      : "=t"(y)
-      : "f"(x));
+  asm("fcos" : "=t"(y) : "0"(x));
   return y;
 }
 internal_symbol float64 cpu_sqrt(float64 x)
 {
   float64 y;
-  asm("fld %0\n"
-      "fsqrt"
-      : "=t"(y)
-      : "f"(x));
+  asm("fsqrt" : "=t"(y) : "0"(x));
   return y;
 }
 internal_symbol u8 bit_scan_reverse32(u32 x)
