@@ -46,6 +46,8 @@
 #define UNUSED_PARAMETER(x) ((void)x)
 // NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
 #define FixedArrayCount(array) (sizeof(array) / sizeof(*array))
+#define assert(__predicate_expr)                                               \
+  if (!(__predicate_expr)) debugger_break()
 // (Word Types)
 using u8 = unsigned char;
 using u16 = unsigned short;
@@ -105,6 +107,7 @@ internal_symbol void vm_free(memory_size size, memory_address data)
 #define IntegralConcept typename
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
+#define UnaryPredicateConcept typename
 // (ReadableConcept)
 #define ReadableConcept typename
 template <typename T> struct readable_concept {
@@ -225,10 +228,10 @@ template <typename T> constexpr T valid_max();
     using concept = modular_integer_tag;                                       \
   };                                                                           \
   template <> constexpr T valid_max<T>() { return __upper_bound; }
-DefineModularInteger(u8, u8(~0u));
-DefineModularInteger(u16, u16(~0u));
-DefineModularInteger(u32, u32(~0u));
-DefineModularInteger(u64, u64(~0u));
+DefineModularInteger(u8, u8(~0));
+DefineModularInteger(u16, u16(~0));
+DefineModularInteger(u32, u32(~0));
+DefineModularInteger(u64, u64(~0));
 DefineModularInteger(s8, s8(127));
 DefineModularInteger(s16, s16(32767));
 DefineModularInteger(s32, s32(2147483647));
@@ -266,10 +269,7 @@ template <Integer I> bool addition_valid(I x, I addand)
 {
   return addition_valid(x, addand, IntegerConcept<I>());
 }
-// (Algorithms)
-template <IntegralConcept I> bool zero(I x) { return x == I(0); }
-template <IntegralConcept I> I successor(I x) { return x + 1; }
-template <IntegralConcept I> I predecessor(I x) { return x - 1; }
+// (Pointers)
 template <typename T> struct readable_concept<PointerOf<T>> {
   using readable_type = T &; // at least readable, also writable
 };
@@ -280,15 +280,22 @@ template <typename T> Readable<PointerOf<T>> source(PointerOf<T> x)
 {
   return *x;
 }
-template <typename T> Writable<PointerOf<T>> &sink(PointerOf<T> x)
-{
-  return *x;
-}
+template <typename T> Writable<PointerOf<T>> sink(PointerOf<T> x) { return *x; }
 template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
 template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
 template <typename T> memory_address AddressOf(T &xref)
 {
   return memory_address(&xref);
+}
+// (Algorithms)
+template <IntegralConcept I> bool zero(I x) { return x == I(0); }
+template <IntegralConcept I> I successor(I x) { return x + 1; }
+template <IntegralConcept I> I predecessor(I x) { return x - 1; }
+template <typename T> void swap(PointerOf<T> a, PointerOf<T> b)
+{
+  T temp = source(a);
+  sink(a) = source(b);
+  sink(b) = temp;
 }
 template <OrdinateConcept I, typename Check = Writable<I>>
 I set_step(I *pos_ptr, Writable<I> const &value)
@@ -298,6 +305,16 @@ I set_step(I *pos_ptr, Writable<I> const &value)
   sink(pos) = value;
   pos = successor(pos);
   return old_pos;
+}
+template <OrdinateConcept I, UnaryPredicateConcept P>
+REQUIRES(Domain(P) == ValueType(InputOrdinateConcept)) I
+  find_if(I first, I last, P pred)
+    DOC("in [`first`, `last`) find the first position where `pred` is true")
+{
+  while (first != last && !pred(source(first))) {
+    first = successor(first);
+  }
+  return first;
 }
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op, typename Check = IntegerConcept<I>>
@@ -387,6 +404,7 @@ template <> struct number_concept<float32> {
 };
 // (Arithmetics)
 template <typename T> T absolute_value(T x) { return x < T(0) ? -x : x; }
+template <typename T> bool finite(T x);
 template <typename T> bool operator<(T a, T b) { return natural_order(a, b); }
 template <typename T> bool operator==(T a, T b) { return equality(a, b); }
 template <typename T> bool operator!=(T a, T b) { return !(a == b); }
@@ -411,7 +429,7 @@ template <typename T> T lower_division(T x, T divisor)
 }
 template <typename T> T upper_division(T x, T divisor)
 {
-  return -lower_division(-x, divisor);
+  return 1 + -lower_division(-x, divisor);
 }
 // (Memory Allocation)
 template <typename T, IntegralConcept I> struct counted_range {
@@ -585,12 +603,17 @@ internal_symbol inline float64 cpu_abs(float64 x);
 internal_symbol inline float64 cpu_sin(float64 x);
 internal_symbol inline float64 cpu_cos(float64 x);
 internal_symbol inline float64 cpu_sqrt(float64 x);
+internal_symbol inline bool cpu_finite(float64 x);
+template <> inline bool finite(float32 x) { return cpu_finite(x); }
+template <> inline bool finite(float64 x) { return cpu_finite(x); }
 template <> inline float32 absolute_value(float32 x)
 {
   auto result = cpu_abs(x);
   return result;
 }
 template <> inline float64 absolute_value(float64 x) { return cpu_abs(x); }
+// (Floats)
+bool valid(float32 x) { return finite(x); }
 // (Vector Math)
 struct vec3 MODELS(Regular) { float32 x, y, z; };
 internal_symbol vec3 make_vec3(float32 v) { return {v, v, v}; }
@@ -599,9 +622,13 @@ internal_symbol vec3 make_vec3(float32 x, float32 y, float32 z)
 {
   return {x, y, z};
 }
+internal_symbol bool valid(vec3 x)
+{
+  return valid(x.x) && valid(x.y) && valid(x.z);
+}
 internal_symbol bool equality(vec3 a, vec3 b)
 {
-  return a.x == b.y && a.y == b.y && a.z == b.z;
+  return a.x == b.x && a.y == b.y && a.z == b.z;
 };
 internal_symbol bool default_order(vec3 a, vec3 b)
 {
@@ -677,6 +704,12 @@ aabb2 cover(aabb2 bounding_box, float32 point_x, float32 point_y)
   bounding_box.min_y = min(bounding_box.min_y, point_y);
   bounding_box.max_y = max(bounding_box.max_y, point_y);
   return bounding_box;
+}
+bool intersects(aabb2 a, aabb2 b)
+{
+  if (a.max_x < b.min_x || a.min_x > b.max_x) return false;
+  if (a.max_y < b.min_y || a.min_y > b.max_y) return false;
+  return true;
 }
 aabb2 translate(aabb2 bounding_box, float32 delta_x, float32 delta_y)
 {
@@ -861,6 +894,16 @@ void render_next_gl3(unsigned long long micros, Display display)
   DOC("main effect") { vine_effect(display); }
   transient_memory.frame_allocator = saved_frame_allocator;
 }
+internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
+{
+  nvgBeginPath(vg);
+  nvgMoveTo(vg, bounding_box.min_x, bounding_box.min_y);
+  nvgLineTo(vg, bounding_box.max_x, bounding_box.min_y);
+  nvgLineTo(vg, bounding_box.max_x, bounding_box.max_y);
+  nvgLineTo(vg, bounding_box.min_x, bounding_box.max_y);
+  nvgLineTo(vg, bounding_box.min_x, bounding_box.min_y);
+  nvgStroke(vg);
+}
 internal_symbol void vine_effect(Display const &display) TAG("visuals")
   DOC("growing a plant like organism")
 {
@@ -874,12 +917,16 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     float32 twirl;
     float32 bifurcation_threshold;
     float32 energy_spent;
+    float32 life;
   };
   struct vine_stem_history_header {
     u32 stem_id;
+    aabb2 bounding_box;
     counted_range<vec3, memory_size> path_storage;
     circular_ordinate<ReadWriteOrdinate<decltype(path_storage)>> last_point_pos;
     memory_size point_count;
+    vec3 last_observed_point;
+    bool32 recyclable;
   };
   struct vine_header {
     counted_range<vine_stem_header, memory_size> stem_storage;
@@ -897,9 +944,12 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     [](vine_stem_history_header *dest, u32 stem_id) {
       auto &y = sink(dest);
       y.stem_id = stem_id;
+      y.bounding_box = zero_aabb2();
       y.last_point_pos =
         make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
       y.point_count = 0;
+      y.last_observed_point = {};
+      y.recyclable = false;
     };
   auto init_vine_stem =
     [](vine_stem_header *dest, vec3 start, vec3 growth,
@@ -910,6 +960,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       y.end = start;
       y.growth = growth;
       y.energy_spent = 0.0;
+      y.life = 1.0;
       y.bifurcation_bit = 0;
       y.twirl = 0.0;
       y.generation_count = generation_count;
@@ -936,7 +987,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     vine_header result;
     alloc_array(allocator, max_stem_count, &result.stem_storage);
     result.last_stem_pos = begin(result.stem_storage);
-    alloc_array(allocator, max_stem_count, &result.history_storage);
+    alloc_array(allocator, max_stem_count / 10, &result.history_storage);
     result.last_history_pos = begin(result.history_storage);
     for_each_n(begin(result.history_storage),
                container_size(result.history_storage),
@@ -952,83 +1003,131 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     return result;
   };
   local_state vine_header vine =
-    allocate_vine(&main_memory.allocator, 64, {-7.6, -5.8, 0},
+    allocate_vine(&main_memory.allocator, 600, {-7.6, -5.8, 0},
                   {float32(8.0 / simulation_points_per_second),
                    float32(6.0 / simulation_points_per_second), 0.0},
-                  0.3, 3 * simulation_points_per_second);
+                  0.3, 30 * simulation_points_per_second);
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
   aabb2 active_points_bounding_box = zero_aabb2();
-  DOC("always consider start an active point")
-  {
-    auto tip = vine.stem_storage.first->start;
-    active_points_bounding_box =
-      cover(active_points_bounding_box, tip.x, tip.y);
-  }
+  auto push_active_point = [&](vec3 point) {
+    if (addition_valid(active_points_count, u8(1))) {
+      ++active_points_count;
+      active_points_running_sum = active_points_running_sum + point;
+      active_points_bounding_box =
+        cover(active_points_bounding_box, point.x, point.y);
+    }
+  };
+  if (1) DOC("always consider start of effect as part of the bounding box")
+    {
+      auto tip = vine.stem_storage.first->start;
+      active_points_bounding_box =
+        cover(active_points_bounding_box, tip.x, tip.y);
+    }
+  auto strategy_one = [&](vine_stem_header &stem) {
+    float32 const mag = 0.0071 * (stem.bifurcation_bit ? 1 : -1);
+    auto const twirl_threshold = 0.62 * stem.bifurcation_threshold;
+    auto const twirl_distance = stem.bifurcation_threshold - twirl_threshold;
+    if (stem.generation_count >= 0 && stem.energy_spent >= twirl_threshold) {
+      stem.twirl = 10 * mag * square((stem.energy_spent - twirl_threshold) /
+                                     twirl_distance);
+    } else {
+      stem.twirl = 0.0;
+    }
+    vec3 growth;
+    {
+      vec3 instant_velocity = stem.growth * simulation_points_per_second;
+      float32 norm = 1.0 / euclidean_norm(instant_velocity);
+      vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
+      vec3 magnetic_force =
+        norm * cross_product(instant_velocity, magnetic_pole);
+      vec3 magnetic_pole1 = stem.twirl * make_vec3(0.0, 0.0, 1.0);
+      vec3 magnetic_force1 =
+        norm * cross_product(instant_velocity, magnetic_pole1);
+      growth = stem.growth + 0.5 * (magnetic_force + magnetic_force1);
+    }
+    vec3 tip = stem.end + growth;
+    float growth_cost_j_per_cm = 0.09;
+    auto old_energy_spent = stem.energy_spent;
+    auto growth_cost_j = growth_cost_j_per_cm * euclidean_norm(growth);
+    auto new_energy_spent = old_energy_spent + growth_cost_j;
+    auto should_sprout = stem.generation_count < 2 &&
+                         old_energy_spent < stem.bifurcation_threshold &&
+                         new_energy_spent >= stem.bifurcation_threshold;
+    if (should_sprout) {
+      new_energy_spent = 0; // reset to delay next bifurcation
+    }
+    auto can_grow = (stem.generation_count == 0 || stem.life > 0);
+    if (can_grow) {
+      stem.growth = growth;
+      stem.end = tip;
+      stem.life -= 0.25 * growth_cost_j;
+      if (stem.generation_count == 0) {
+        push_active_point(tip);
+      }
+    }
+    if (should_sprout) {
+      // bifurcate!
+      stem.bifurcation_threshold *= 2.0;
+      auto g = stem.growth;
+      auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
+      g = 0.6 * g + 0.4 * cross_product(g, v);
+      stem.bifurcation_bit = ~stem.bifurcation_bit;
+      auto stem_ptr = push_vine_stem(&vine);
+      if (stem_ptr) {
+        init_vine_stem(stem_ptr, tip, g, 0.9 * stem.bifurcation_threshold,
+                       u32(vine.last_stem_pos - begin(vine.stem_storage)),
+                       successor(stem.generation_count));
+        set_step_within(created_stems, &last_created_stem, *stem_ptr);
+      }
+    }
+    stem.energy_spent = new_energy_spent;
+  };
+  auto strategy_two = [&](vine_stem_header &stem) {
+    auto energy_growth = 1.0 / 12.0 * euclidean_norm(stem.growth);
+    if (stem.generation_count < 2 &&
+        stem.energy_spent < stem.bifurcation_threshold &&
+        stem.energy_spent + energy_growth > stem.bifurcation_threshold) {
+      vine_stem_header *new_stem_ptr;
+      if ((new_stem_ptr = push_vine_stem(&vine))) {
+        auto new_stem_id = u32(vine.last_stem_pos - begin(vine.stem_storage));
+        vec3 new_stem_growth;
+        float32 angle = stem.twirl;
+        new_stem_growth.x = -cpu_sin(angle) * stem.growth.y;
+        new_stem_growth.y = cpu_cos(angle) * stem.growth.x;
+        new_stem_growth.z = 0.0;
+        init_vine_stem(new_stem_ptr, stem.end, new_stem_growth,
+                       0.75 * stem.bifurcation_threshold, new_stem_id,
+                       successor(stem.generation_count));
+        set_step_within(created_stems, &last_created_stem, *new_stem_ptr);
+      }
+      stem.energy_spent = -energy_growth;
+    }
+    if (stem.energy_spent < stem.bifurcation_threshold) {
+      stem.twirl = stem.twirl + 1.0 / 11.0;
+      stem.end = stem.end + stem.growth;
+      stem.energy_spent = stem.energy_spent + energy_growth;
+      if (stem.generation_count == 0) {
+        push_active_point(stem.end);
+      }
+    }
+  };
   DOC("grow vine")
-  for_each(
-    begin(vine.stem_storage), vine.last_stem_pos, [&](vine_stem_header &stem) {
-      vec3 const &previous = stem.end;
-      vec3 growth;
-      float32 mag = 0.001 * (stem.bifurcation_bit ? 1 : -1);
-      {
-        vec3 instant_velocity = stem.growth * simulation_points_per_second;
-        float32 norm = 1.0 / euclidean_norm(instant_velocity);
-        vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
-        vec3 magnetic_force =
-          norm * cross_product(instant_velocity, magnetic_pole);
-        vec3 magnetic_pole1 = stem.twirl * make_vec3(0.0, 0.0, 1.0);
-        vec3 magnetic_force1 =
-          norm * cross_product(instant_velocity, magnetic_pole1);
-        growth = stem.growth + magnetic_force + magnetic_force1;
-      }
-      vec3 tip = previous + growth;
-      float growth_cost_j_per_cm = 0.09;
-      auto old_energy_spent = stem.energy_spent;
-      auto new_energy_spent =
-        old_energy_spent + growth_cost_j_per_cm * euclidean_norm(growth);
-      auto should_sprout = stem.generation_count < 3 &&
-                           old_energy_spent < stem.bifurcation_threshold &&
-                           new_energy_spent >= stem.bifurcation_threshold;
-      auto twirl_threshold = 0.7 * stem.bifurcation_threshold;
-      auto twirl_distance = stem.bifurcation_threshold - twirl_threshold;
-      if (stem.generation_count >= 0 && stem.energy_spent >= twirl_threshold) {
-        stem.twirl = 10 * mag * square((stem.energy_spent - twirl_threshold) /
-                                       twirl_distance);
-      } else {
-        stem.twirl = 0.0;
-      }
-      if (should_sprout) {
-        new_energy_spent = 0; // reset to delay next bifurcation
-      }
-      auto can_grow = new_energy_spent < stem.bifurcation_threshold;
-      if (can_grow) {
-        stem.growth = growth;
-        stem.end = tip;
-        if (addition_valid(active_points_count, u8(1))) {
-          ++active_points_count;
-          active_points_running_sum = active_points_running_sum + tip;
-          active_points_bounding_box =
-            cover(active_points_bounding_box, tip.x, tip.y);
-        }
-      }
-      if (should_sprout) {
-        // bifurcate!
-        stem.bifurcation_threshold *= 1.1;
-        auto g = stem.growth;
-        auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
-        g = 0.6 * g + 0.4 * cross_product(g, v);
-        stem.bifurcation_bit = ~stem.bifurcation_bit;
-        auto stem_ptr = push_vine_stem(&vine);
-        if (stem_ptr) {
-          init_vine_stem(stem_ptr, tip, g, 2.0 * stem.bifurcation_threshold,
-                         u32(vine.last_stem_pos - begin(vine.stem_storage)),
-                         successor(stem.generation_count));
-          set_step_within(created_stems, &last_created_stem, *stem_ptr);
-        }
-      }
-      stem.energy_spent = new_energy_spent;
-    });
+  {
+    local_state u16 strategy_count = 0;
+    local_state u16 const switch_count = 640;
+    u32 previous = ((strategy_count - 1) / switch_count % 2);
+    u32 current = (strategy_count / switch_count) % 2;
+    if (previous != current) {
+      source(begin(vine.stem_storage)).bifurcation_threshold *= 0.83;
+    }
+    if (current == 0) {
+      for_each(begin(vine.stem_storage), vine.last_stem_pos, strategy_one);
+    } else {
+      for_each(begin(vine.stem_storage), vine.last_stem_pos, strategy_two);
+    }
+    ++strategy_count;
+  }
   DOC("initialize state propagation")
   for_each(begin(created_stems), last_created_stem, [&](vine_stem_header stem) {
     auto pos = step_within(vine.history_storage, &vine.last_history_pos);
@@ -1036,20 +1135,67 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       init_vine_stem_history(&sink(pos), stem.stem_id);
     }
   });
+  local_state vec3 camera_center = {};
+  local_state vec3 camera_halfsize =
+    20.0 / display.framebuffer_width_px *
+    vec3{float32(display.framebuffer_width_px),
+         float32(display.framebuffer_height_px), 0.0f};
+  aabb2 camera_bb;
+  {
+    camera_bb.min_x = -camera_halfsize.x;
+    camera_bb.max_x = camera_halfsize.x;
+    camera_bb.min_y = -camera_halfsize.y;
+    camera_bb.max_y = camera_halfsize.y;
+    camera_bb = translate(camera_bb, camera_center.x, camera_center.y);
+  }
   DOC("propagate stem state to histories")
-  for_each(begin(vine.history_storage), vine.last_history_pos,
-           [](vine_stem_history_header &history) {
-             if (history.stem_id == 0) {
-               return;
-             }
-             auto stem = source(at(vine.stem_storage, history.stem_id - 1));
-             if (squared_euclidean_distance(
-                   source(predecessor(history.last_point_pos)), stem.end) >=
-                 square(0.3)) {
-               set_step(&history.last_point_pos, stem.end);
-               ++history.point_count;
-             }
-           });
+  {
+    for_each(
+      begin(vine.history_storage), vine.last_history_pos,
+      [&](vine_stem_history_header &history) {
+        bool redo;
+        do {
+          if (history.stem_id == 0) {
+            return;
+          }
+          redo = false;
+          auto stem = source(at(vine.stem_storage, history.stem_id - 1));
+          auto point = stem.end;
+          auto previous_point = source(predecessor(history.last_point_pos));
+          auto d_to_previous =
+            squared_euclidean_distance(previous_point, point);
+          auto last_observed_point = history.last_observed_point;
+          history.last_observed_point = point;
+          if (d_to_previous >= square(0.3)) {
+            history.bounding_box =
+              cover(history.bounding_box, point.x, point.y);
+            set_step(&history.last_point_pos, point);
+            ++history.point_count;
+          } else if (point == last_observed_point && history.point_count > 0) {
+            history.recyclable = true;
+            if (!intersects(history.bounding_box, camera_bb)) {
+              history.stem_id = 0;
+              // partition/deletion trick: we swap the current element with the
+              // back of the collection, and process that entry
+              // immediately instead of proceeding to the next.
+              auto &back_history = source(predecessor(vine.last_history_pos));
+              if (AddressOf(back_history) != AddressOf(history)) {
+                swap(&history, &back_history);
+                --vine.last_history_pos;
+              }
+              redo = true;
+            }
+          }
+        } while (redo);
+      });
+  }
+#if NEIGE_SLOW
+  assert(end(vine.history_storage) !=
+         find_if(begin(vine.history_storage), vine.last_history_pos,
+                 [](vine_stem_history_header history) {
+                   return history.stem_id == 0;
+                 }));
+#endif
   vec3 active_point_average;
   if (active_points_count > 0) {
     active_point_average =
@@ -1057,34 +1203,35 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   } else {
     active_point_average = make_vec3(0);
   }
-  // draw vines
-  local_state vec3 camera_center = {};
-  local_state vec3 camera_halfsize =
-    40.0 / display.framebuffer_width_px *
-    vec3{float32(display.framebuffer_width_px),
-         float32(display.framebuffer_height_px), 0.0f};
-  DOC("janky camera physics focusing on average point")
-  {
-    local_state vec3 point_of_interest = active_point_average;
-    point_of_interest =
-      interpolate_linear(point_of_interest, active_point_average, 0.05);
-    camera_center = point_of_interest;
-    auto active_points_bb = make_symmetric(translate(
-      active_points_bounding_box, -camera_center.x, -camera_center.y));
-    float32 scale = 1.0;
-    float32 tolerance = 1.2;
-    if (active_points_bb.max_x > camera_halfsize.x) {
-      scale =
-        max(scale, tolerance * active_points_bb.max_x / camera_halfsize.x);
+  if (active_points_count > 0)
+    DOC("janky camera physics focusing on average point")
+    {
+      local_state vec3 point_of_interest = active_point_average;
+      point_of_interest =
+        interpolate_linear(point_of_interest, active_point_average, 0.05);
+      camera_center = point_of_interest;
+      auto active_points_bb = make_symmetric(translate(
+        active_points_bounding_box, -camera_center.x, -camera_center.y));
+      float32 scale = 1.0;
+      float32 tolerance = 1.2;
+      if (active_points_bb.max_x > camera_halfsize.x) {
+        scale =
+          max(scale, tolerance * active_points_bb.max_x / camera_halfsize.x);
+      }
+      if (active_points_bb.max_y > camera_halfsize.y) {
+        scale =
+          max(scale, tolerance * active_points_bb.max_y / camera_halfsize.y);
+      }
+      auto desired_camera_halfsize = camera_halfsize * scale;
+      if (desired_camera_halfsize.x > 1000.0) {
+        desired_camera_halfsize =
+          1000.0 / desired_camera_halfsize.x * desired_camera_halfsize;
+      }
+      camera_halfsize = interpolate_linear(
+        camera_halfsize, desired_camera_halfsize, square(0.05));
+      assert(valid(camera_halfsize));
+      fatal_ifnot(valid(camera_halfsize));
     }
-    if (active_points_bb.max_y > camera_halfsize.y) {
-      scale =
-        max(scale, tolerance * active_points_bb.max_y / camera_halfsize.y);
-    }
-    auto desired_camera_halfsize = camera_halfsize * scale;
-    camera_halfsize = interpolate_linear(camera_halfsize,
-                                         desired_camera_halfsize, square(0.05));
-  }
   local_state auto vg = nvg_create_context();
   glClear(GL_STENCIL_BUFFER_BIT);
   {
@@ -1092,7 +1239,12 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                   int(display.framebuffer_height_px),
                   1.0); // should be 2.0 on retina
     nvgReset(vg);
-    auto cm_to_display = display.framebuffer_width_px / camera_halfsize.x;
+    auto width = camera_halfsize.x;
+    auto debug_camera = false;
+    if (debug_camera) {
+      width *= 2.0;
+    }
+    auto cm_to_display = display.framebuffer_width_px / (2.0 * width);
     vec3 center_in_screen_coordinates =
       make_vec3(display.framebuffer_width_px / 2.0,
                 display.framebuffer_height_px / 2.0) +
@@ -1128,38 +1280,51 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       nvgFill(vg);
     }
     nvgBeginPath(vg);
-    // for now just draw the vine as a series of dots
     auto dot_radius = 0.07;
-    for_each(begin(vine.history_storage), vine.last_history_pos,
-             [&](vine_stem_history_header history) {
-               for_each_n(
-                 begin(history.path_storage),
-                 min(container_size(history.path_storage), history.point_count),
-                 [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
-             });
-    nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
-    nvgFill(vg);
-    nvgBeginPath(vg);
-    nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
+    DOC("draw a vine as a series of dots")
+    {
+      for_each(
+        begin(vine.history_storage), vine.last_history_pos,
+        [&](vine_stem_history_header history) {
+          for_each_n(
+            begin(history.path_storage),
+            min(container_size(history.path_storage), history.point_count),
+            [&](vec3 p) { nvgCircle(vg, p.x, p.y, dot_radius); });
+        });
+      nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
+      nvgFill(vg);
+      nvgStrokeWidth(vg, 0.1);
+      for_each(begin(vine.history_storage), vine.last_history_pos,
+               [](vine_stem_history_header history) {
+                 if (history.recyclable) {
+                   nvgStrokeColor(vg, nvgRGBA(120, 40, 30, 180));
+                 } else {
+                   nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
+                 }
+                 draw_bounding_box(vg, history.bounding_box);
+               });
+    }
     DOC("draw tips")
     {
+      nvgBeginPath(vg);
+      nvgFillColor(vg, nvgRGBA(138, 138, 108, 255));
       for_each(begin(vine.stem_storage), vine.last_stem_pos,
                [&](vine_stem_header stem) {
                  nvgCircle(vg, stem.start.x, stem.start.y, dot_radius);
                  nvgCircle(vg, stem.end.x, stem.end.y, 2.0 * dot_radius);
                });
-    }
-    nvgFill(vg);
-    DOC("draw from start to end")
-    {
-      nvgBeginPath(vg);
-      for_each(begin(vine.stem_storage), vine.last_stem_pos,
-               [&](vine_stem_header stem) {
-                 nvgMoveTo(vg, stem.start.x, stem.start.y);
-                 nvgLineTo(vg, stem.end.x, stem.end.y);
-               });
       nvgFill(vg);
     }
+    if (1) DOC("draw line from start to end")
+      {
+        nvgBeginPath(vg);
+        for_each(begin(vine.stem_storage), vine.last_stem_pos,
+                 [&](vine_stem_header stem) {
+                   nvgMoveTo(vg, stem.start.x, stem.start.y);
+                   nvgLineTo(vg, stem.end.x, stem.end.y);
+                 });
+        nvgFill(vg);
+      }
     DOC("draw average active point / camera / bounding boxes")
     {
       nvgBeginPath(vg);
@@ -1168,20 +1333,12 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                 0.75 * dot_radius);
       nvgCircle(vg, camera_center.x, camera_center.y, 0.5 * dot_radius);
       nvgFill(vg);
-      nvgBeginPath(vg);
       nvgStrokeWidth(vg, 0.1);
       nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
-      nvgMoveTo(vg, active_points_bounding_box.min_x,
-                active_points_bounding_box.min_y);
-      nvgLineTo(vg, active_points_bounding_box.max_x,
-                active_points_bounding_box.min_y);
-      nvgLineTo(vg, active_points_bounding_box.max_x,
-                active_points_bounding_box.max_y);
-      nvgLineTo(vg, active_points_bounding_box.min_x,
-                active_points_bounding_box.max_y);
-      nvgLineTo(vg, active_points_bounding_box.min_x,
-                active_points_bounding_box.min_y);
-      nvgStroke(vg);
+      draw_bounding_box(vg, active_points_bounding_box);
+      nvgStrokeWidth(vg, 0.5);
+      nvgStrokeColor(vg, nvgRGBA(150, 140, 30, 80));
+      draw_bounding_box(vg, camera_bb);
     }
     nvgEndFrame(vg);
   }
@@ -1531,6 +1688,29 @@ internal_symbol float64 cpu_sqrt(float64 x)
   float64 y;
   asm("fsqrt" : "=t"(y) : "0"(x));
   return y;
+}
+internal_symbol bool cpu_finite(float64 x)
+{
+  register u16 y asm("eax") = 0x88;
+  asm("fxam\n"
+      "fstsw %0"
+      : "=r"(y)
+      : "f"(x));
+  union x87_status_register {
+    u16 value;
+    struct {
+      u16 ignored : 8;
+      u16 C0 : 1;
+      u16 C1 : 1;
+      u16 C2 : 1;
+      u16 TOP : 3;
+      u16 C3 : 1;
+    };
+  };
+  x87_status_register yy;
+  yy.value = y;
+  u16 triple = (yy.C3 << 2) | (yy.C2 << 1) | (yy.C0);
+  return triple == 2 || triple == 4 || triple == 6;
 }
 internal_symbol u8 bit_scan_reverse32(u32 x)
 {
