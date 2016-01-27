@@ -4,7 +4,7 @@ set -e
 HERE="$(dirname "${0}")"
 CC=clang make -C hidapi/mac -f Makefile-manual
 clang -c uu.micros/libs/glew/src/glew.c -Iuu.micros/libs/glew/include/ -o glew.o # compile glew separately because it's slow to compile
-clang++ -DOS=OS_OSX -g -std=c++11 -framework System -Wall -Wextra \
+clang++ -DOS=OS_OSX -DNEIGE_SLOW -g -std=c++11 -framework System -Wall -Wextra \
   -Wno-tautological-compare neige.cpp -o neige \
   -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
