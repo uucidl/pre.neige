@@ -954,6 +954,7 @@ internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
 internal_symbol void vine_effect(Display const &display) TAG("visuals")
   DOC("growing a plant like organism")
 {
+  enum { NULL_STEM_ID = 0 };
   struct stem {
     u32 stem_id;
     vec3 start;
@@ -987,6 +988,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     stem *last_stem_pos;
     counted_range<vine_stem_history_header, memory_size> history_storage;
     vine_stem_history_header *last_history_pos;
+    u32 next_stem_id;
   };
   auto allocate_vine_stem_history =
     [](slab_allocator *allocator, memory_size max_path_size) {
@@ -1007,9 +1009,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     };
   auto init_vine_stem =
     [](stem *dest, vec3 start, vec3 growth, float32 bifurcation_threshold,
-       u32 stem_id, u32 generation_count) {
+       u32 generation_count) {
       auto &y = sink(dest);
-      y.stem_id = stem_id;
+      fatal_if(y.stem_id == NULL_STEM_ID);
       y.start = start;
       y.end = start;
       y.growth = growth;
@@ -1025,6 +1027,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     auto &y = sink(dest);
     auto stem_pos = step_within(y.stem_storage, &y.last_stem_pos);
     if (stem_pos < end(y.stem_storage)) {
+      auto &new_stem = sink(stem_pos);
+      new_stem = {};
+      new_stem.stem_id = dest->next_stem_id++;
       return &sink(stem_pos);
     } else {
       return nullptr;
@@ -1036,27 +1041,27 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   alloc_array(&transient_memory.frame_allocator,
               u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
   stem *last_created_stem = begin(created_stems);
-  auto allocate_vine = [&](
-    slab_allocator *allocator, memory_size max_stem_count, vec3 start,
-    vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
-    vine_header result;
-    alloc_array(allocator, max_stem_count, &result.stem_storage);
-    result.last_stem_pos = begin(result.stem_storage);
-    alloc_array(allocator, max_stem_count / 10, &result.history_storage);
-    result.last_history_pos = begin(result.history_storage);
-    for_each_n(begin(result.history_storage),
-               container_size(result.history_storage),
-               [&](vine_stem_history_header &y) {
-                 y = allocate_vine_stem_history(allocator, max_path_size);
-               });
-    auto stem_ptr = push_vine_stem(&result);
-    if (stem_ptr) {
-      init_vine_stem(stem_ptr, start, growth, bifurcation_threshold,
-                     u32(result.last_stem_pos - begin(result.stem_storage)), 0);
-      set_step_within(created_stems, &last_created_stem, *stem_ptr);
-    }
-    return result;
-  };
+  auto allocate_vine =
+    [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
+        vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+      vine_header result;
+      alloc_array(allocator, max_stem_count, &result.stem_storage);
+      result.last_stem_pos = begin(result.stem_storage);
+      alloc_array(allocator, max_stem_count / 10, &result.history_storage);
+      result.last_history_pos = begin(result.history_storage);
+      for_each_n(begin(result.history_storage),
+                 container_size(result.history_storage),
+                 [&](vine_stem_history_header &y) {
+                   y = allocate_vine_stem_history(allocator, max_path_size);
+                 });
+      result.next_stem_id = 1;
+      auto stem_ptr = push_vine_stem(&result);
+      if (stem_ptr) {
+        init_vine_stem(stem_ptr, start, growth, bifurcation_threshold, 0);
+        set_step_within(created_stems, &last_created_stem, *stem_ptr);
+      }
+      return result;
+    };
   local_state vine_header vine =
     allocate_vine(&main_memory.allocator, 600, {-7.6, -5.8, 0},
                   {float32(8.0 / simulation_points_per_second),
@@ -1140,7 +1145,6 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       auto stem_ptr = push_vine_stem(&vine);
       if (stem_ptr) {
         init_vine_stem(stem_ptr, stem.end, g, 0.9 * stem.bifurcation_threshold,
-                       u32(vine.last_stem_pos - begin(vine.stem_storage)),
                        successor(stem.generation_count));
         set_step_within(created_stems, &last_created_stem, *stem_ptr);
       }
@@ -1206,7 +1210,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       auto stem_ptr = push_vine_stem(&vine);
       if (stem_ptr) {
         init_vine_stem(stem_ptr, tip, g, 0.9 * s.bifurcation_threshold,
-                       u32(vine.last_stem_pos - begin(vine.stem_storage)),
+
                        successor(s.generation_count));
         set_step_within(created_stems, &last_created_stem, *stem_ptr);
       }
@@ -1219,14 +1223,13 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         s.energy_spent + energy_growth > s.bifurcation_threshold) {
       PointerOf<stem> new_stem_ptr;
       if ((new_stem_ptr = push_vine_stem(&vine))) {
-        auto new_stem_id = u32(vine.last_stem_pos - begin(vine.stem_storage));
         vec3 new_stem_growth;
         float32 angle = s.twirl;
         new_stem_growth.x = -cpu_sin(angle) * s.growth.y;
         new_stem_growth.y = cpu_cos(angle) * s.growth.x;
         new_stem_growth.z = 0.0;
         init_vine_stem(new_stem_ptr, s.end, new_stem_growth,
-                       0.75 * s.bifurcation_threshold, new_stem_id,
+                       0.75 * s.bifurcation_threshold,
                        successor(s.generation_count));
         set_step_within(created_stems, &last_created_stem, *new_stem_ptr);
       }
@@ -1281,15 +1284,40 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     camera_bb = translate(camera_bb, camera_center.x, camera_center.y);
   }
   aabb2 eviction_bb = scale_around_center(camera_bb, 2.0);
+  if (1) DOC("stream in/out stems that are in simulation region")
+    {
+      vine.last_stem_pos = sequential_partition_nonstable(
+        begin(vine.stem_storage), vine.last_stem_pos, [&](stem &stem) {
+          auto must_be_simulated =
+            contains(eviction_bb, stem.start.x, stem.start.y) ||
+            contains(eviction_bb, stem.end.x, stem.end.y);
+          // TODO(nicolas): we should be testing intersection with the
+          // segment.
+          //
+          // TODO(nicolas): actually store the stem in backing store,
+          // with its path history (so that we can reconstruct the
+          // entire vine if necessary
+          return must_be_simulated;
+        });
+    }
   DOC("propagate stem state to histories")
   {
     vine.last_history_pos = sequential_partition_nonstable(
       begin(vine.history_storage), vine.last_history_pos,
       [&](vine_stem_history_header &history) {
-        if (history.stem_id == 0) {
+        if (history.stem_id == NULL_STEM_ID) {
           return false; // must delete
         }
-        auto stem = source(at(vine.stem_storage, history.stem_id - 1));
+        // NOTE(nicolas): TAG(perf) TAG(O(n^2) this linear search
+        // makes the overall algo O(n^2). It's ok because the number
+        // of stem is small.
+        auto stem_pos =
+          find_if(begin(vine.stem_storage), vine.last_stem_pos,
+                  [=](stem const s) { return s.stem_id == history.stem_id; });
+        if (stem_pos >= vine.last_stem_pos) {
+          return false;
+        }
+        auto stem = source(stem_pos);
         auto point = stem.end;
         auto previous_point = source(predecessor(history.last_point_pos));
         auto d_to_previous = squared_euclidean_distance(previous_point, point);
@@ -1304,27 +1332,20 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         }
         if (history.recyclable &&
             !intersects(history.bounding_box, camera_bb)) {
-          history.stem_id = 0;
+          history.stem_id = NULL_STEM_ID;
           return false; // must delete
         }
         return true; // must keep
       });
   }
-  DOC("stream in/out stems that are in simulation region")
-  {
-    for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem &stem) {
-      auto must_be_evicted =
-        !contains(eviction_bb, stem.start.x, stem.start.y) &&
-        !contains(eviction_bb, stem.end.x, stem.end.x);
-
-    });
-  }
 #if NEIGE_SLOW
   DOC("test partitioning is correct")
   {
-    auto first_unallocated = find_if(
-      begin(vine.history_storage), vine.last_history_pos,
-      [](vine_stem_history_header history) { return history.stem_id == 0; });
+    auto first_unallocated =
+      find_if(begin(vine.history_storage), vine.last_history_pos,
+              [](vine_stem_history_header history) {
+                return history.stem_id == NULL_STEM_ID;
+              });
     assert(vine.last_history_pos == first_unallocated);
   }
 #endif
@@ -1372,10 +1393,10 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                   1.0); // should be 2.0 on retina
     nvgReset(vg);
     auto halfwidth = camera_halfsize.x;
-    auto debug_camera = true;
-    if (debug_camera) {
-      halfwidth = 0.5 * 1.5 * (eviction_bb.max_x - eviction_bb.min_x);
-    }
+    if (0) DOC("turn debug camera on")
+      {
+        halfwidth = 0.5 * 1.5 * (eviction_bb.max_x - eviction_bb.min_x);
+      }
     auto cm_to_display = display.framebuffer_width_px / (2.0 * halfwidth);
     vec3 center_in_screen_coordinates =
       make_vec3(display.framebuffer_width_px / 2.0,
