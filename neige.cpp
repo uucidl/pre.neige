@@ -951,15 +951,17 @@ internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
   nvgLineTo(vg, bounding_box.min_x, bounding_box.min_y);
   nvgStroke(vg);
 }
+internal_symbol float32 perlin_noise2(float32 period, float32 x, float32 y);
 internal_symbol void vine_effect(Display const &display) TAG("visuals")
   DOC("growing a plant like organism")
 {
   enum { NULL_STEM_ID = 0 };
+  enum { TICKS_PER_SECOND = 60 };
   struct stem {
     u32 stem_id;
     vec3 start;
     vec3 end;
-    vec3 growth;
+    vec3 growth_cm_per_tick;
     u32 generation_count;
     float32 twirl;
     float32 energy_spent;
@@ -969,8 +971,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     float32 bifurcation_threshold;
   };
   auto valid_stem = [](stem stem) {
-    return valid(stem.start) && valid(stem.end) && valid(stem.growth) &&
-           valid(stem.twirl) && valid(stem.energy_spent) && valid(stem.life) &&
+    return valid(stem.start) && valid(stem.end) &&
+           valid(stem.growth_cm_per_tick) && valid(stem.twirl) &&
+           valid(stem.energy_spent) && valid(stem.life) &&
            valid(stem.bifurcation_energy_spent) &&
            valid(stem.bifurcation_threshold);
   };
@@ -1008,13 +1011,13 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       y.recyclable = false;
     };
   auto init_vine_stem =
-    [](stem *dest, vec3 start, vec3 growth, float32 bifurcation_threshold,
-       u32 generation_count) {
+    [](stem *dest, vec3 start, vec3 growth_cm_per_tick,
+       float32 bifurcation_threshold, u32 generation_count) {
       auto &y = sink(dest);
       fatal_if(y.stem_id == NULL_STEM_ID);
       y.start = start;
       y.end = start;
-      y.growth = growth;
+      y.growth_cm_per_tick = growth_cm_per_tick;
       y.energy_spent = 0.0;
       y.life = 1.0;
       y.bifurcation_energy_spent = 0.0;
@@ -1035,7 +1038,6 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       return nullptr;
     }
   };
-  auto simulation_points_per_second = 60.0;
   counted_range<stem, u32> created_stems;
   enum { MAX_STEMS_CREATED_PER_FRAME = 16 };
   alloc_array(&transient_memory.frame_allocator,
@@ -1062,11 +1064,10 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       }
       return result;
     };
-  local_state vine_header vine =
-    allocate_vine(&main_memory.allocator, 600, {-7.6, -5.8, 0},
-                  {float32(8.0 / simulation_points_per_second),
-                   float32(6.0 / simulation_points_per_second), 0.0},
-                  0.3, 30 * simulation_points_per_second);
+  local_state vine_header vine = allocate_vine(
+    &main_memory.allocator, 600, {-7.6, -5.8, 0},
+    make_vec3(float32(4.0 / TICKS_PER_SECOND), float32(7.0 / TICKS_PER_SECOND)),
+    0.3, 30 * TICKS_PER_SECOND);
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
   aabb2 active_points_bounding_box = zero_aabb2();
@@ -1078,15 +1079,18 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         cover(active_points_bounding_box, point.x, point.y);
     }
   };
-  if (0) DOC("always consider start of effect as part of the bounding box")
+  if (0)
+    DOC("always consider start of effect as part of the camera focus of "
+        "attention")
     {
       auto tip = vine.stem_storage.first->start;
       active_points_bounding_box =
         cover(active_points_bounding_box, tip.x, tip.y);
     }
-  auto linear_growth = [&](stem &stem) { stem.end = stem.end + stem.growth; };
+  auto linear_growth =
+    [&](stem &stem) { stem.end = stem.end + stem.growth_cm_per_tick; };
   auto twirl_force = [&](stem &stem) {
-    auto growth = stem.growth;
+    auto growth = stem.growth_cm_per_tick;
     auto const initial_growth_magnitude = euclidean_norm(growth);
     if (initial_growth_magnitude > 0.0) {
       float32 const mag = 0.00071 * (stem.bifurcation_bit ? 1 : -1);
@@ -1101,7 +1105,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         stem.twirl = 0.0;
       }
       {
-        vec3 instant_velocity = stem.growth * simulation_points_per_second;
+        // TODO(nicolas): dimensional analysis results in something weird:
+        vec3 instant_velocity = stem.growth_cm_per_tick * TICKS_PER_SECOND;
         float32 norm = 1.0 / euclidean_norm(instant_velocity);
         vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
         vec3 magnetic_force =
@@ -1111,13 +1116,14 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           norm * cross_product(instant_velocity, magnetic_pole1);
         growth = growth + 0.5 * (magnetic_force + magnetic_force1);
       }
-      stem.growth =
+      stem.growth_cm_per_tick =
         (initial_growth_magnitude / euclidean_norm(growth)) * growth;
     }
   };
   auto tally_energy_spent = [&](stem &stem) {
     float32 growth_cost_j_per_cm = 0.09;
-    auto growth_cost_j = growth_cost_j_per_cm * euclidean_norm(stem.growth);
+    auto growth_cost_j =
+      growth_cost_j_per_cm * euclidean_norm(stem.growth_cm_per_tick);
     stem.energy_spent = stem.energy_spent + growth_cost_j;
     stem.life -= growth_cost_j;
   };
@@ -1130,7 +1136,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     auto bifurcate_decision_cost_j = 0.071;
     auto new_energy_spent =
       stem.bifurcation_energy_spent +
-      bifurcate_decision_cost_j * euclidean_norm(stem.growth);
+      bifurcate_decision_cost_j * euclidean_norm(stem.growth_cm_per_tick);
     auto should_sprout =
       stem.generation_count < 2 &&
       stem.bifurcation_energy_spent < stem.bifurcation_threshold &&
@@ -1138,7 +1144,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     if (should_sprout) {
       // bifurcate!
       new_energy_spent = 0; // reset to delay next bifurcation
-      auto g = stem.growth;
+      auto g = stem.growth_cm_per_tick;
       auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
       g = 0.6 * g + 0.4 * cross_product(g, v);
       stem.bifurcation_bit = ~stem.bifurcation_bit;
@@ -1153,96 +1159,26 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   };
   auto limit_lifespan = [](stem &s) {
     float32 growth_cost_j_per_cm = 0.001;
-    s.life -= 0.25 * growth_cost_j_per_cm * euclidean_norm(s.growth);
-    if (s.life <= 0.0 && s.generation_count > 0) {
-      s.growth = make_vec3(0);
+    s.life -=
+      0.25 * growth_cost_j_per_cm * euclidean_norm(s.growth_cm_per_tick);
+    if (s.generation_count != 0) {
+      if (s.life <= 0.0) {
+        s.growth_cm_per_tick = make_vec3(0);
+      } else if (s.life <= 0.2) {
+        s.growth_cm_per_tick = 0.98 * s.growth_cm_per_tick;
+      }
     }
   };
-  auto strategy_one = [&](stem &s) {
-    float32 const mag = 0.0071 * (s.bifurcation_bit ? 1 : -1);
-    auto const twirl_threshold = 0.62 * s.bifurcation_threshold;
-    auto const twirl_distance = s.bifurcation_threshold - twirl_threshold;
-    if (s.generation_count >= 0 && s.energy_spent >= twirl_threshold) {
-      s.twirl =
-        10 * mag * square((s.energy_spent - twirl_threshold) / twirl_distance);
-    } else {
-      s.twirl = 0.0;
-    }
-    vec3 growth;
-    {
-      vec3 instant_velocity = s.growth * simulation_points_per_second;
-      float32 norm = 1.0 / euclidean_norm(instant_velocity);
-      vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
-      vec3 magnetic_force =
-        norm * cross_product(instant_velocity, magnetic_pole);
-      vec3 magnetic_pole1 = s.twirl * make_vec3(0.0, 0.0, 1.0);
-      vec3 magnetic_force1 =
-        norm * cross_product(instant_velocity, magnetic_pole1);
-      growth = s.growth + 0.5 * (magnetic_force + magnetic_force1);
-    }
-    vec3 tip = s.end + growth;
-    float growth_cost_j_per_cm = 0.09;
-    auto old_energy_spent = s.energy_spent;
-    auto growth_cost_j = growth_cost_j_per_cm * euclidean_norm(growth);
-    auto new_energy_spent = old_energy_spent + growth_cost_j;
-    auto should_sprout = s.generation_count < 2 &&
-                         old_energy_spent < s.bifurcation_threshold &&
-                         new_energy_spent >= s.bifurcation_threshold;
-    if (should_sprout) {
-      new_energy_spent = 0; // reset to delay next bifurcation
-    }
-    auto can_grow = (s.generation_count == 0 || s.life > 0);
-    if (can_grow) {
-      s.growth = growth;
-      s.end = tip;
-      s.life -= 0.25 * growth_cost_j;
-      if (s.generation_count == 0) {
-        push_active_point(tip);
-      }
-    }
-    if (should_sprout) {
-      // bifurcate!
-      s.bifurcation_threshold *= 2.0;
-      auto g = s.growth;
-      auto v = make_vec3(0, 0, s.bifurcation_bit ? 1 : -1);
-      g = 0.6 * g + 0.4 * cross_product(g, v);
-      s.bifurcation_bit = ~s.bifurcation_bit;
-      auto stem_ptr = push_vine_stem(&vine);
-      if (stem_ptr) {
-        init_vine_stem(stem_ptr, tip, g, 0.9 * s.bifurcation_threshold,
-
-                       successor(s.generation_count));
-        set_step_within(created_stems, &last_created_stem, *stem_ptr);
-      }
-    }
-    s.energy_spent = new_energy_spent;
-  };
-  auto strategy_two = [&](stem &s) {
-    auto energy_growth = 1.0 / 12.0 * euclidean_norm(s.growth);
-    if (s.generation_count < 2 && s.energy_spent < s.bifurcation_threshold &&
-        s.energy_spent + energy_growth > s.bifurcation_threshold) {
-      PointerOf<stem> new_stem_ptr;
-      if ((new_stem_ptr = push_vine_stem(&vine))) {
-        vec3 new_stem_growth;
-        float32 angle = s.twirl;
-        new_stem_growth.x = -cpu_sin(angle) * s.growth.y;
-        new_stem_growth.y = cpu_cos(angle) * s.growth.x;
-        new_stem_growth.z = 0.0;
-        init_vine_stem(new_stem_ptr, s.end, new_stem_growth,
-                       0.75 * s.bifurcation_threshold,
-                       successor(s.generation_count));
-        set_step_within(created_stems, &last_created_stem, *new_stem_ptr);
-      }
-      s.energy_spent = -energy_growth;
-    }
-    if (s.energy_spent < s.bifurcation_threshold) {
-      s.twirl = s.twirl + 1.0 / 11.0;
-      s.end = s.end + s.growth;
-      s.energy_spent = s.energy_spent + energy_growth;
-      if (s.generation_count == 0) {
-        push_active_point(s.end);
-      }
-    }
+  auto growth_noise = [](stem &s) {
+    auto fluctuation_period_cm = 6.0;
+    auto fluctuation_dir_period_cm = 12.0;
+    auto fluctuation = perlin_noise2(fluctuation_period_cm, s.end.x, s.end.y);
+    auto fluctuation_direction = interpolate_linear(
+      s.growth_cm_per_tick, make_vec3(0, 1),
+      perlin_noise2(fluctuation_dir_period_cm, s.end.x - s.start.x,
+                    s.end.y - s.start.y));
+    auto magnitude = 0.8;
+    s.end = s.end + magnitude * fluctuation_direction * fluctuation;
   };
   auto strategy_three = [&](stem &stem) {
     linear_growth(stem);
@@ -1256,6 +1192,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     filter_active_point(stem);
     assert(valid_stem(stem));
     limit_lifespan(stem);
+    assert(valid_stem(stem));
+    growth_noise(stem);
     assert(valid_stem(stem));
   };
   DOC("grow vine")
@@ -1361,7 +1299,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     {
       local_state vec3 point_of_interest = active_point_average;
       point_of_interest =
-        interpolate_linear(point_of_interest, active_point_average, 0.05);
+        interpolate_linear(point_of_interest, active_point_average, 0.025);
       camera_center = point_of_interest;
       auto active_points_bb = make_symmetric(translate(
         active_points_bounding_box, -camera_center.x, -camera_center.y));
@@ -1405,33 +1343,33 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgTranslate(vg, center_in_screen_coordinates.x,
                  center_in_screen_coordinates.y);
     nvgScale(vg, cm_to_display, -cm_to_display);
-    DOC("grid to get a sense of the space")
-    {
-      nvgBeginPath(vg);
-      nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
-      float32 maxy = camera_center.y + camera_halfsize.y;
-      float32 miny = camera_center.y - camera_halfsize.y;
-      float32 minx = camera_center.x - camera_halfsize.x;
-      float32 maxx = camera_center.x + camera_halfsize.x;
-      float32 stepx_cm = 1;
-      // ensure grids don't get too dense
-      while ((maxy - miny) / stepx_cm > 100.0) {
-        stepx_cm *= 2;
+    if (0) DOC("grid to get a sense of the space")
+      {
+        nvgBeginPath(vg);
+        nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
+        float32 maxy = camera_center.y + camera_halfsize.y;
+        float32 miny = camera_center.y - camera_halfsize.y;
+        float32 minx = camera_center.x - camera_halfsize.x;
+        float32 maxx = camera_center.x + camera_halfsize.x;
+        float32 stepx_cm = 1;
+        // ensure grids don't get too dense
+        while ((maxy - miny) / stepx_cm > 100.0) {
+          stepx_cm *= 2;
+        }
+        float32 grid_minx = lower_division(minx, stepx_cm);
+        float32 grid_maxx = upper_division(maxx, stepx_cm);
+        float32 grid_miny = lower_division(miny, stepx_cm);
+        float32 grid_maxy = upper_division(maxy, stepx_cm);
+        for (float32 x = grid_minx; x < grid_maxx; x += stepx_cm) {
+          nvgMoveTo(vg, x, maxy);
+          nvgLineTo(vg, x, miny);
+        }
+        for (float32 y = grid_miny; y < grid_maxy; y += stepx_cm) {
+          nvgMoveTo(vg, maxx, y);
+          nvgLineTo(vg, minx, y);
+        }
+        nvgFill(vg);
       }
-      float32 grid_minx = lower_division(minx, stepx_cm);
-      float32 grid_maxx = upper_division(maxx, stepx_cm);
-      float32 grid_miny = lower_division(miny, stepx_cm);
-      float32 grid_maxy = upper_division(maxy, stepx_cm);
-      for (float32 x = grid_minx; x < grid_maxx; x += stepx_cm) {
-        nvgMoveTo(vg, x, maxy);
-        nvgLineTo(vg, x, miny);
-      }
-      for (float32 y = grid_miny; y < grid_maxy; y += stepx_cm) {
-        nvgMoveTo(vg, maxx, y);
-        nvgLineTo(vg, minx, y);
-      }
-      nvgFill(vg);
-    }
     nvgBeginPath(vg);
     auto dot_radius = 0.07;
     DOC("draw a vine as a series of dots")
@@ -1446,16 +1384,6 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         });
       nvgFillColor(vg, nvgRGBA(78, 192, 117, 255));
       nvgFill(vg);
-      nvgStrokeWidth(vg, 0.1);
-      for_each(begin(vine.history_storage), vine.last_history_pos,
-               [](vine_stem_history_header history) {
-                 if (history.recyclable) {
-                   nvgStrokeColor(vg, nvgRGBA(120, 40, 30, 180));
-                 } else {
-                   nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
-                 }
-                 draw_bounding_box(vg, history.bounding_box);
-               });
     }
     DOC("draw tips")
     {
@@ -1476,22 +1404,32 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         });
         nvgFill(vg);
       }
-    DOC("draw average active point / camera / bounding boxes")
-    {
-      nvgBeginPath(vg);
-      nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
-      nvgCircle(vg, active_point_average.x, active_point_average.y,
-                0.75 * dot_radius);
-      nvgCircle(vg, camera_center.x, camera_center.y, 0.5 * dot_radius);
-      nvgFill(vg);
-      nvgStrokeWidth(vg, 0.1);
-      nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
-      draw_bounding_box(vg, active_points_bounding_box);
-      nvgStrokeWidth(vg, 0.5);
-      nvgStrokeColor(vg, nvgRGBA(150, 140, 30, 80));
-      draw_bounding_box(vg, camera_bb);
-      draw_bounding_box(vg, eviction_bb);
-    }
+    if (0) DOC("draw average active point / camera / bounding boxes")
+      {
+        nvgBeginPath(vg);
+        nvgFillColor(vg, nvgRGBA(255, 0, 10, 255));
+        nvgCircle(vg, active_point_average.x, active_point_average.y,
+                  0.75 * dot_radius);
+        nvgCircle(vg, camera_center.x, camera_center.y, 0.5 * dot_radius);
+        nvgFill(vg);
+        nvgStrokeWidth(vg, 0.1);
+        nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
+        draw_bounding_box(vg, active_points_bounding_box);
+        nvgStrokeWidth(vg, 0.5);
+        nvgStrokeColor(vg, nvgRGBA(150, 140, 30, 80));
+        draw_bounding_box(vg, camera_bb);
+        draw_bounding_box(vg, eviction_bb);
+        nvgStrokeWidth(vg, 0.1);
+        for_each(begin(vine.history_storage), vine.last_history_pos,
+                 [](vine_stem_history_header history) {
+                   if (history.recyclable) {
+                     nvgStrokeColor(vg, nvgRGBA(120, 40, 30, 180));
+                   } else {
+                     nvgStrokeColor(vg, nvgRGBA(20, 140, 130, 80));
+                   }
+                   draw_bounding_box(vg, history.bounding_box);
+                 });
+      }
     nvgEndFrame(vg);
   }
 }
@@ -1924,3 +1862,14 @@ internal_symbol NVGcontext *nvg_create_context()
 #if defined(STATIC_GLEW)
 #include "uu.micros/libs/glew/src/glew.c"
 #endif
+// (stb_perlin)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#define STB_PERLIN_IMPLEMENTATION
+#include "uu.ticks/modules/stb/stb_perlin.h"
+#pragma clang diagnostic pop
+internal_symbol float32 perlin_noise2(float32 period, float32 x, float32 y)
+{
+  auto result = stb_perlin_noise3(x / period, y / period, 0.0f, 256, 256, 256);
+  return result;
+}
