@@ -952,6 +952,27 @@ internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
   nvgStroke(vg);
 }
 internal_symbol float32 perlin_noise2(float32 period, float32 x, float32 y);
+struct grid2 {
+  aabb2 bounding_box;
+  float32 step;
+};
+internal_symbol grid2 make_grid2(aabb2 approximate_bounding_box,
+                                 float32 target_step, u32 max_step_count)
+{
+  auto const &ibb = approximate_bounding_box;
+  // ensure grids don't get too dense
+  float32 step = target_step;
+  while ((ibb.max_y - ibb.min_y) > step * max_step_count) {
+    step *= 2;
+  }
+  grid2 result;
+  result.bounding_box.min_x = lower_division(ibb.min_x, step);
+  result.bounding_box.max_x = upper_division(ibb.max_x, step);
+  result.bounding_box.min_y = lower_division(ibb.min_y, step);
+  result.bounding_box.max_y = upper_division(ibb.max_y, step);
+  result.step = step;
+  return result;
+}
 internal_symbol void vine_effect(Display const &display) TAG("visuals")
   DOC("growing a plant like organism")
 {
@@ -1343,30 +1364,20 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     nvgTranslate(vg, center_in_screen_coordinates.x,
                  center_in_screen_coordinates.y);
     nvgScale(vg, cm_to_display, -cm_to_display);
-    if (0) DOC("grid to get a sense of the space")
+    if (1) DOC("grid to get a sense of the space")
       {
         nvgBeginPath(vg);
         nvgFillColor(vg, nvgRGBA(80, 85, 80, 128));
-        float32 maxy = camera_center.y + camera_halfsize.y;
-        float32 miny = camera_center.y - camera_halfsize.y;
-        float32 minx = camera_center.x - camera_halfsize.x;
-        float32 maxx = camera_center.x + camera_halfsize.x;
-        float32 stepx_cm = 1;
-        // ensure grids don't get too dense
-        while ((maxy - miny) / stepx_cm > 100.0) {
-          stepx_cm *= 2;
+        auto grid = make_grid2(camera_bb, 1.0, 100);
+        for (float32 x = grid.bounding_box.min_x; x < grid.bounding_box.max_x;
+             x += grid.step) {
+          nvgMoveTo(vg, x, grid.bounding_box.max_y);
+          nvgLineTo(vg, x, grid.bounding_box.min_y);
         }
-        float32 grid_minx = lower_division(minx, stepx_cm);
-        float32 grid_maxx = upper_division(maxx, stepx_cm);
-        float32 grid_miny = lower_division(miny, stepx_cm);
-        float32 grid_maxy = upper_division(maxy, stepx_cm);
-        for (float32 x = grid_minx; x < grid_maxx; x += stepx_cm) {
-          nvgMoveTo(vg, x, maxy);
-          nvgLineTo(vg, x, miny);
-        }
-        for (float32 y = grid_miny; y < grid_maxy; y += stepx_cm) {
-          nvgMoveTo(vg, maxx, y);
-          nvgLineTo(vg, minx, y);
+        for (float32 y = grid.bounding_box.min_y; y < grid.bounding_box.max_y;
+             y += grid.step) {
+          nvgMoveTo(vg, grid.bounding_box.max_x, y);
+          nvgLineTo(vg, grid.bounding_box.min_x, y);
         }
         nvgFill(vg);
       }
