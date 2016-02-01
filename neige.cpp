@@ -105,11 +105,17 @@ internal_symbol void vm_free(memory_size size, memory_address data)
 // (Concepts)
 #define MODELS(...)
 #define REQUIRES(...)
-#define OrdinateConcept typename
 #define IntegralConcept typename
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
 #define UnaryPredicateConcept typename
+// (OrdinateConcept)
+#define OrdinateConcept typename
+template <typename T> struct ordinate_concept {
+  using value_type = void;
+};
+template <typename T>
+using ValueType = typename ordinate_concept<T>::value_type;
 // (ReadableConcept)
 #define ReadableConcept typename
 template <typename T> struct readable_concept {
@@ -283,6 +289,9 @@ template <typename T> Readable<PointerOf<T>> source(PointerOf<T> x)
   return *x;
 }
 template <typename T> Writable<PointerOf<T>> sink(PointerOf<T> x) { return *x; }
+template <typename T> struct ordinate_concept<PointerOf<T>> {
+  using value_type = T;
+};
 template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
 template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
 template <typename T> memory_address AddressOf(T &xref)
@@ -315,6 +324,17 @@ REQUIRES(Domain(P) == ValueType(InputOrdinateConcept)) I
 {
   while (first != last && !pred(source(first))) {
     first = successor(first);
+  }
+  return first;
+}
+template <OrdinateConcept O, IntegralConcept I,
+          typename Check = IntegerConcept<I>>
+O fill_n(O first, I n, ValueType<O> x)
+{
+  while (!zero(n)) {
+    sink(first) = x;
+    first = successor(first);
+    n = predecessor(n);
   }
   return first;
 }
@@ -1243,6 +1263,51 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     camera_bb = translate(camera_bb, camera_center.x, camera_center.y);
   }
   aabb2 eviction_bb = scale_around_center(camera_bb, 2.0);
+  auto simulation_grid = make_grid2(camera_bb, 0.5, 100);
+  counted_range<float32, u32> density = {};
+  u32 density_NY = 0;
+  u32 density_NX = 0;
+  if (1) DOC("lagrangian mechanics")
+    {
+      density_NY = (simulation_grid.bounding_box.max_y -
+                    simulation_grid.bounding_box.min_y) /
+                   simulation_grid.step;
+      density_NX = (simulation_grid.bounding_box.max_x -
+                    simulation_grid.bounding_box.min_x) /
+                   simulation_grid.step;
+      u32 NX = density_NX;
+      u32 NY = density_NY;
+      alloc_array(&transient_memory.frame_allocator, density_NX * density_NY,
+                  &density);
+      fill_n(begin(density), container_size(density), float32(0.0));
+      {
+        float32 y0 = simulation_grid.bounding_box.min_y;
+        float32 x0 = simulation_grid.bounding_box.min_x;
+        for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem &stem) {
+          float32 xs = (stem.end.x - x0) / simulation_grid.step;
+          float32 ys = (stem.end.y - y0) / simulation_grid.step;
+          if (xs < 0.0 || xs >= NX) return;
+          if (ys < 0.0 || ys >= NY) return;
+          auto xi = u32(xs);
+          auto yi = u32(ys);
+          *at(density, yi * NX + xi) += 1.0;
+        });
+      }
+      float32 y0 = simulation_grid.bounding_box.min_y;
+      float32 x0 = simulation_grid.bounding_box.min_x;
+      float32 step = simulation_grid.step;
+      float32 y1 = y0 + step;
+      float32 x1 = x0 + step;
+      for (u32 yi = 0; yi < NY; ++yi) {
+        for (u32 xi = 0; xi < NX; ++xi) {
+
+          x0 = x1;
+          x1 += step;
+        }
+        y0 = y1;
+        y1 += step;
+      }
+    }
   if (1) DOC("stream in/out stems that are in simulation region")
     {
       vine.last_stem_pos = sequential_partition_nonstable(
@@ -1380,6 +1445,25 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           nvgLineTo(vg, grid.bounding_box.min_x, y);
         }
         nvgFill(vg);
+      }
+    if (1) DOC("density grid")
+      {
+        u32 NX = density_NX;
+        u32 NY = density_NY;
+        float32 step = simulation_grid.step;
+        float32 y0 = simulation_grid.bounding_box.min_y;
+        for (u32 yi = 0; yi < NY; ++yi) {
+          float32 x0 = simulation_grid.bounding_box.min_x;
+          for (u32 xi = 0; xi < NX; ++xi) {
+            float32 d = *at(density, xi + yi * NX);
+            nvgBeginPath(vg);
+            nvgFillColor(vg, nvgRGBA(80, 125, 80, 128.0 * d));
+            nvgRect(vg, x0, y0, step, step);
+            nvgFill(vg);
+            x0 += step;
+          }
+          y0 += step;
+        }
       }
     nvgBeginPath(vg);
     auto dot_radius = 0.07;
