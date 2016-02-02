@@ -1292,6 +1292,20 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           auto yi = u32(ys);
           *at(density, yi * NX + xi) += 1.0;
         });
+        for_each(begin(vine.history_storage), vine.last_history_pos,
+                 [&](vine_stem_history_header const history) {
+                   if (history.stem_id == 0) return;
+                   for_each(begin(history.path_storage),
+                            end(history.path_storage), [&](vec3 pos) {
+                              float32 xs = (pos.x - x0) / simulation_grid.step;
+                              float32 ys = (pos.y - y0) / simulation_grid.step;
+                              if (xs < 0.0 || xs >= NX) return;
+                              if (ys < 0.0 || ys >= NY) return;
+                              auto xi = u32(xs);
+                              auto yi = u32(ys);
+                              *at(density, yi * NX + xi) += 1.0;
+                            });
+                 });
       }
       float32 y0 = simulation_grid.bounding_box.min_y;
       float32 x0 = simulation_grid.bounding_box.min_x;
@@ -1455,7 +1469,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         for (u32 yi = 0; yi < NY; ++yi) {
           float32 x0 = simulation_grid.bounding_box.min_x;
           for (u32 xi = 0; xi < NX; ++xi) {
-            float32 d = *at(density, xi + yi * NX);
+            float32 d = *at(density, xi + yi * NX) / 4.0;
             nvgBeginPath(vg);
             nvgFillColor(vg, nvgRGBA(80, 125, 80, 128.0 * d));
             nvgRect(vg, x0, y0, step, step);
