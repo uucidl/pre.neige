@@ -1267,7 +1267,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   counted_range<float32, u32> density = {};
   u32 density_NY = 0;
   u32 density_NX = 0;
-  if (1) DOC("lagrangian mechanics")
+  if (1) DOC("very janky lagrangian mechanics")
     {
       density_NY = (simulation_grid.bounding_box.max_y -
                     simulation_grid.bounding_box.min_y) /
@@ -1292,28 +1292,65 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           auto yi = u32(ys);
           *at(density, yi * NX + xi) += 1.0;
         });
-        for_each(begin(vine.history_storage), vine.last_history_pos,
-                 [&](vine_stem_history_header const history) {
-                   if (history.stem_id == 0) return;
-                   for_each(begin(history.path_storage),
-                            end(history.path_storage), [&](vec3 pos) {
-                              float32 xs = (pos.x - x0) / simulation_grid.step;
-                              float32 ys = (pos.y - y0) / simulation_grid.step;
-                              if (xs < 0.0 || xs >= NX) return;
-                              if (ys < 0.0 || ys >= NY) return;
-                              auto xi = u32(xs);
-                              auto yi = u32(ys);
-                              *at(density, yi * NX + xi) += 1.0;
-                            });
-                 });
+        for_each(
+          begin(vine.history_storage), vine.last_history_pos,
+          [&](vine_stem_history_header const history) {
+            if (history.stem_id == 0) return;
+            for_each_n(
+              begin(history.path_storage),
+              min(container_size(history.path_storage), history.point_count),
+              [&](vec3 pos) {
+                float32 xs = (pos.x - x0) / simulation_grid.step;
+                float32 ys = (pos.y - y0) / simulation_grid.step;
+                if (xs < 0.0 || xs >= NX) return;
+                if (ys < 0.0 || ys >= NY) return;
+                auto xi = u32(xs);
+                auto yi = u32(ys);
+                *at(density, yi * NX + xi) += 1.0;
+              });
+          });
       }
       float32 y0 = simulation_grid.bounding_box.min_y;
       float32 x0 = simulation_grid.bounding_box.min_x;
       float32 step = simulation_grid.step;
       float32 y1 = y0 + step;
       float32 x1 = x0 + step;
-      for (u32 yi = 0; yi < NY; ++yi) {
-        for (u32 xi = 0; xi < NX; ++xi) {
+      for (u32 yi = 1; yi < NY - 1; ++yi) {
+        for (u32 xi = 1; xi < NX - 1; ++xi) {
+          auto v00 = *at(density, yi * NX + xi);
+          if (v00 == 0.0) continue;
+          auto vl0 = *at(density, yi * NX + xi + 1);
+          auto vr0 = *at(density, yi * NX + xi - 1);
+          auto v0d = *at(density, (yi - 1) * NX + xi);
+          auto v0u = *at(density, (yi + 1) * NX + xi);
+          auto dvx = (vr0 - vl0) / step;
+          auto dvy = (v0u - v0d) / step;
+          auto dvec = make_vec3(dvx, dvy);
+          auto dvec_norm = euclidean_norm(dvec);
+          if (true || dvec_norm == 0.0) TAG(degenerate)
+            {
+              if (v0d == 0.0) {
+                dvec = make_vec3(0.0, -1.0);
+              } else if (v0u == 0.0) {
+                dvec = make_vec3(0.0, 1.0);
+              } else if (vl0 == 0.0) {
+                dvec = make_vec3(-1.0, 0.0);
+              }
+              dvec = make_vec3(1.0, 0.0);
+            }
+          auto du = (1.0 / euclidean_norm(dvec)) * dvec;
+          for_each(begin(vine.stem_storage), vine.last_stem_pos,
+                   [&](stem &stem) {
+                     float32 xs = (stem.end.x - x0) / simulation_grid.step;
+                     float32 ys = (stem.end.y - y0) / simulation_grid.step;
+                     if (xs < 0.0 || xs >= NX) return;
+                     if (ys < 0.0 || ys >= NY) return;
+                     auto sxi = u32(xs);
+                     auto syi = u32(ys);
+                     if (sxi != xi || syi != yi) return;
+                     stem.growth_cm_per_tick =
+                       stem.growth_cm_per_tick + 0.03 * (v00 - 1.0) / step * du;
+                   });
 
           x0 = x1;
           x1 += step;
@@ -1460,7 +1497,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
         }
         nvgFill(vg);
       }
-    if (1) DOC("density grid")
+    if (1) DOC("display density grid")
       {
         u32 NX = density_NX;
         u32 NY = density_NY;
