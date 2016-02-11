@@ -14,6 +14,9 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
   Jump to (Main) to find the program.
   TAG(project)
    - TODO(nicolas): load sample
+  TAG(style)
+  - types named `_header` are non-owning. They refer to remote parts
+    but do not manage these resources.
  */
 // (Platform Configuration)
 #define CPU_IA32 (1)
@@ -726,6 +729,7 @@ internal_symbol vec3 operator-(vec3 a, vec3 b)
 {
   return addition(a, vec3{-b.x, -b.y, -b.z});
 }
+// (Bounding Box)
 struct aabb2 MODELS(SemiRegular)
 {
   float32 min_x;
@@ -792,6 +796,48 @@ bool contains(aabb2 bb, float32 x, float32 y)
   if (x < bb.min_x || x > bb.max_x) return false;
   if (y < bb.min_y || y > bb.max_y) return false;
   return true;
+}
+// (Multi-Dimensional Arrays)
+// PERSON(Pramod Gupta)
+// URL(https://www.youtube.com/watch?v=CPPX4kwqh80)
+// URL(https://github.com/astrobiology/orca_array)
+template <typename T, typename I> struct array2_header MODELS(container)
+{
+  T *memory;
+  I memory_size;
+  I d0_count;
+  I d1_count;
+};
+template <typename T, IntegralConcept I>
+struct container_concept<array2_header<T, I>> {
+  using read_write_ordinate = PointerOf<T>;
+};
+template <typename T, typename I>
+array2_header<T, I> make_array2(T *memory, I memory_size, I d0, I d1)
+{
+  fatal_ifnot(d0 * d1 <= memory_size);
+  return {memory, memory_size, d0, d1};
+}
+template <typename T, typename I>
+PointerOf<T> at(array2_header<T, I> const &array, I x0, I x1)
+{
+#if defined(NEIGE_SLOW)
+  fatal_ifnot(x0 < array.d0_count);
+  fatal_ifnot(x1 < array.d1_count);
+#endif
+  I offset = x1 * array.d0_count + x0;
+  fatal_ifnot(offset < array.memory_size);
+  return &array.memory[offset];
+}
+template <typename T, typename I>
+PointerOf<T> begin(array2_header<T, I> const &x)
+{
+  return x.memory;
+}
+template <typename T, typename I>
+memory_size container_size(array2_header<T, I> const &x)
+{
+  return x.d0_count * x.d1_count;
 }
 // (Main)
 #include "nanovg/src/nanovg.h"
@@ -1003,6 +1049,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     vec3 start;
     vec3 end;
     vec3 growth_cm_per_tick;
+    vec3 density_force;
+    bool apply_density_force;
     u32 generation_count;
     float32 twirl;
     float32 energy_spent;
@@ -1130,6 +1178,10 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     }
   auto linear_growth =
     [&](stem &stem) { stem.end = stem.end + stem.growth_cm_per_tick; };
+  auto apply_density_force = [&](stem &stem) {
+    if (!stem.apply_density_force) return;
+    stem.end = stem.end + stem.density_force;
+  };
   auto twirl_force = [&](stem &stem) {
     auto growth = stem.growth_cm_per_tick;
     auto const initial_growth_magnitude = euclidean_norm(growth);
@@ -1224,6 +1276,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   auto strategy_three = [&](stem &stem) {
     linear_growth(stem);
     assert(valid_stem(stem));
+    apply_density_force(stem);
+    assert(valid_stem(stem));
     twirl_force(stem);
     assert(valid_stem(stem));
     tally_energy_spent(stem);
@@ -1263,23 +1317,25 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     camera_bb = translate(camera_bb, camera_center.x, camera_center.y);
   }
   aabb2 eviction_bb = scale_around_center(camera_bb, 2.0);
-  auto simulation_grid = make_grid2(camera_bb, 0.5, 100);
-  counted_range<float32, u32> density = {};
-  u32 density_NY = 0;
-  u32 density_NX = 0;
-  if (1) DOC("very janky lagrangian mechanics")
+  auto simulation_grid = make_grid2(camera_bb, 0.25, 100);
+  array2_header<float32, u32> density;
+  if (1) DOC("collect density")
     {
-      density_NY = (simulation_grid.bounding_box.max_y -
-                    simulation_grid.bounding_box.min_y) /
-                   simulation_grid.step;
-      density_NX = (simulation_grid.bounding_box.max_x -
-                    simulation_grid.bounding_box.min_x) /
-                   simulation_grid.step;
+      u32 density_NY = (simulation_grid.bounding_box.max_y -
+                        simulation_grid.bounding_box.min_y) /
+                       simulation_grid.step;
+      u32 density_NX = (simulation_grid.bounding_box.max_x -
+                        simulation_grid.bounding_box.min_x) /
+                       simulation_grid.step;
       u32 NX = density_NX;
       u32 NY = density_NY;
+      counted_range<float32, u32> density_memory;
       alloc_array(&transient_memory.frame_allocator, density_NX * density_NY,
-                  &density);
+                  &density_memory);
+      density = make_array2(density_memory.first, density_memory.count,
+                            density_NX, density_NY);
       fill_n(begin(density), container_size(density), float32(0.0));
+
       {
         float32 y0 = simulation_grid.bounding_box.min_y;
         float32 x0 = simulation_grid.bounding_box.min_x;
@@ -1290,7 +1346,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           if (ys < 0.0 || ys >= NY) return;
           auto xi = u32(xs);
           auto yi = u32(ys);
-          *at(density, yi * NX + xi) += 1.0;
+          *at(density, xi, yi) += 1.0;
         });
         for_each(
           begin(vine.history_storage), vine.last_history_pos,
@@ -1306,10 +1362,17 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                 if (ys < 0.0 || ys >= NY) return;
                 auto xi = u32(xs);
                 auto yi = u32(ys);
-                *at(density, yi * NX + xi) += 1.0;
+                *at(density, xi, yi) += 1.0;
               });
           });
       }
+    }
+  if (1) DOC("janky physics (minimize density)")
+    {
+      auto NX = density.d0_count;
+      auto NY = density.d1_count;
+      for_each(begin(vine.stem_storage), vine.last_stem_pos,
+               [&](stem &stem) { stem.apply_density_force = false; });
       float32 y0 = simulation_grid.bounding_box.min_y;
       float32 x0 = simulation_grid.bounding_box.min_x;
       float32 step = simulation_grid.step;
@@ -1317,28 +1380,28 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       float32 x1 = x0 + step;
       for (u32 yi = 1; yi < NY - 1; ++yi) {
         for (u32 xi = 1; xi < NX - 1; ++xi) {
-          auto v00 = *at(density, yi * NX + xi);
+          auto v00 = *at(density, xi, yi) / step;
           if (v00 == 0.0) continue;
-          auto vl0 = *at(density, yi * NX + xi + 1);
-          auto vr0 = *at(density, yi * NX + xi - 1);
-          auto v0d = *at(density, (yi - 1) * NX + xi);
-          auto v0u = *at(density, (yi + 1) * NX + xi);
-          auto dvx = (vr0 - vl0) / step;
-          auto dvy = (v0u - v0d) / step;
+          auto vl0 = *at(density, xi + 1, yi) / step;
+          auto vr0 = *at(density, xi - 1, yi) / step;
+          auto v0d = *at(density, xi, yi - 1) / step;
+          auto v0u = *at(density, xi, yi + 1) / step;
+          auto dvx = (vr0 - vl0) / 2.0 / step;
+          auto dvy = (v0u - v0d) / 2.0 / step;
           auto dvec = make_vec3(dvx, dvy);
           auto dvec_norm = euclidean_norm(dvec);
-          if (true || dvec_norm == 0.0) TAG(degenerate)
+          if (dvec_norm == 0.0) TAG(degenerate)
             {
               if (v0d == 0.0) {
-                dvec = make_vec3(0.0, -1.0);
-              } else if (v0u == 0.0) {
                 dvec = make_vec3(0.0, 1.0);
+              } else if (v0u == 0.0) {
+                dvec = make_vec3(0.0, -1.0);
               } else if (vl0 == 0.0) {
-                dvec = make_vec3(-1.0, 0.0);
+                dvec = make_vec3(1.0, 0.0);
               }
-              dvec = make_vec3(1.0, 0.0);
+              dvec = make_vec3(-1.0, 0.0);
             }
-          auto du = (1.0 / euclidean_norm(dvec)) * dvec;
+          auto du = (-1.0 / euclidean_norm(dvec)) * dvec;
           for_each(begin(vine.stem_storage), vine.last_stem_pos,
                    [&](stem &stem) {
                      float32 xs = (stem.end.x - x0) / simulation_grid.step;
@@ -1348,8 +1411,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
                      auto sxi = u32(xs);
                      auto syi = u32(ys);
                      if (sxi != xi || syi != yi) return;
-                     stem.growth_cm_per_tick =
-                       stem.growth_cm_per_tick + 0.03 * (v00 - 1.0) / step * du;
+                     stem.density_force = 0.003 * square(v00 - 1.0) * du;
+                     stem.apply_density_force = true;
                    });
 
           x0 = x1;
@@ -1499,14 +1562,14 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       }
     if (1) DOC("display density grid")
       {
-        u32 NX = density_NX;
-        u32 NY = density_NY;
+        u32 NX = density.d0_count;
+        u32 NY = density.d1_count;
         float32 step = simulation_grid.step;
         float32 y0 = simulation_grid.bounding_box.min_y;
         for (u32 yi = 0; yi < NY; ++yi) {
           float32 x0 = simulation_grid.bounding_box.min_x;
           for (u32 xi = 0; xi < NX; ++xi) {
-            float32 d = *at(density, xi + yi * NX) / 4.0;
+            float32 d = *at(density, xi, yi) / 4.0;
             nvgBeginPath(vg);
             nvgFillColor(vg, nvgRGBA(80, 125, 80, 128.0 * d));
             nvgRect(vg, x0, y0, step, step);
@@ -1541,6 +1604,29 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       });
       nvgFill(vg);
     }
+    if (1) DOC("draw density force")
+      {
+        float32 scale = 30.0;
+        nvgStrokeWidth(vg, 0.1);
+        nvgBeginPath(vg);
+        nvgStrokeColor(vg, nvgRGBA(88, 88, 108, 255));
+        for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem stem) {
+          if (stem.apply_density_force) return;
+          nvgMoveTo(vg, stem.end.x, stem.end.y);
+          nvgLineTo(vg, stem.end.x + scale * stem.density_force.x,
+                    stem.end.y + scale * stem.density_force.y);
+        });
+        nvgStroke(vg);
+        nvgBeginPath(vg);
+        nvgStrokeColor(vg, nvgRGBA(188, 188, 108, 255));
+        for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem stem) {
+          if (!stem.apply_density_force) return;
+          nvgMoveTo(vg, stem.end.x, stem.end.y);
+          nvgLineTo(vg, stem.end.x + scale * stem.density_force.x,
+                    stem.end.y + scale * stem.density_force.y);
+        });
+        nvgStroke(vg);
+      }
     if (0) DOC("draw line from start to end")
       {
         nvgBeginPath(vg);
