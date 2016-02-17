@@ -11,7 +11,9 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o")
 /*
-  Jump to (Main) to find the program.
+  Table Of Contents:
+  - Jump to (Main) to find the program.
+  - Jump to TAG("visuals") to find the main visual effect
   TAG(project)
    - TODO(nicolas): load sample
   TAG(style)
@@ -1064,7 +1066,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     u32 stem_id;
     vec3 start;
     vec3 end;
-    vec3 growth_cm_per_tick;
+    vec3 d_end_dt;    // first derivative
+    vec3 dd_end_dtdt; // second derivative
     vec3 density_force;
     bool apply_density_force;
     u32 generation_count;
@@ -1076,9 +1079,8 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     float32 bifurcation_threshold;
   };
   auto valid_stem = [](stem stem) {
-    return valid(stem.start) && valid(stem.end) &&
-           valid(stem.growth_cm_per_tick) && valid(stem.twirl) &&
-           valid(stem.energy_spent) && valid(stem.life) &&
+    return valid(stem.start) && valid(stem.end) && valid(stem.d_end_dt) &&
+           valid(stem.twirl) && valid(stem.energy_spent) && valid(stem.life) &&
            valid(stem.bifurcation_energy_spent) &&
            valid(stem.bifurcation_threshold);
   };
@@ -1122,7 +1124,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     fatal_if(y.stem_id == NULL_STEM_ID);
     y.start = start;
     y.end = start;
-    y.growth_cm_per_tick = growth_cm_per_tick;
+    y.d_end_dt = growth_cm_per_tick;
     y.energy_spent = 0.0;
     y.life = 1.0;
     y.bifurcation_energy_spent = 0.0;
@@ -1192,15 +1194,16 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       active_points_bounding_box =
         cover(active_points_bounding_box, tip.x, tip.y);
     }
-  auto linear_growth = [&](stem &stem) {
-    stem.end = stem.end + stem.growth_cm_per_tick;
+  auto integrate = [&](stem &stem) {
+    stem.d_end_dt = stem.d_end_dt + stem.dd_end_dtdt;
+    stem.end = stem.end + stem.d_end_dt;
   };
   auto apply_density_force = [&](stem &stem) {
     if (!stem.apply_density_force) return;
     stem.end = stem.end + stem.density_force;
   };
   auto twirl_force = [&](stem &stem) {
-    auto growth = stem.growth_cm_per_tick;
+    auto growth = stem.d_end_dt;
     auto const initial_growth_magnitude = euclidean_norm(growth);
     if (initial_growth_magnitude > 0.0) {
       float32 const mag = 0.00071 * (stem.bifurcation_bit ? 1 : -1);
@@ -1216,7 +1219,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       }
       {
         // TODO(nicolas): dimensional analysis results in something weird:
-        vec3 instant_velocity = stem.growth_cm_per_tick * TICKS_PER_SECOND;
+        vec3 instant_velocity = stem.d_end_dt * TICKS_PER_SECOND;
         float32 norm = 1.0 / euclidean_norm(instant_velocity);
         vec3 magnetic_pole = mag * make_vec3(0.0, 0.0, -1.0);
         vec3 magnetic_force =
@@ -1226,14 +1229,13 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
           norm * cross_product(instant_velocity, magnetic_pole1);
         growth = growth + 0.5 * (magnetic_force + magnetic_force1);
       }
-      stem.growth_cm_per_tick =
+      stem.d_end_dt =
         (initial_growth_magnitude / euclidean_norm(growth)) * growth;
     }
   };
   auto tally_energy_spent = [&](stem &stem) {
     float32 growth_cost_j_per_cm = 0.09;
-    auto growth_cost_j =
-      growth_cost_j_per_cm * euclidean_norm(stem.growth_cm_per_tick);
+    auto growth_cost_j = growth_cost_j_per_cm * euclidean_norm(stem.d_end_dt);
     stem.energy_spent = stem.energy_spent + growth_cost_j;
     stem.life -= growth_cost_j;
   };
@@ -1246,7 +1248,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     auto bifurcate_decision_cost_j = 0.071;
     auto new_energy_spent =
       stem.bifurcation_energy_spent +
-      bifurcate_decision_cost_j * euclidean_norm(stem.growth_cm_per_tick);
+      bifurcate_decision_cost_j * euclidean_norm(stem.d_end_dt);
     auto should_sprout =
       stem.generation_count < 2 &&
       stem.bifurcation_energy_spent < stem.bifurcation_threshold &&
@@ -1254,7 +1256,7 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     if (should_sprout) {
       // bifurcate!
       new_energy_spent = 0; // reset to delay next bifurcation
-      auto g = stem.growth_cm_per_tick;
+      auto g = stem.d_end_dt;
       auto v = make_vec3(0, 0, stem.bifurcation_bit ? 1 : -1);
       g = 0.6 * g + 0.4 * cross_product(g, v);
       stem.bifurcation_bit = ~stem.bifurcation_bit;
@@ -1269,13 +1271,12 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   };
   auto limit_lifespan = [](stem &s) {
     float32 growth_cost_j_per_cm = 0.001;
-    s.life -=
-      0.25 * growth_cost_j_per_cm * euclidean_norm(s.growth_cm_per_tick);
+    s.life -= 0.25 * growth_cost_j_per_cm * euclidean_norm(s.d_end_dt);
     if (s.generation_count != 0) {
       if (s.life <= 0.0) {
-        s.growth_cm_per_tick = make_vec3(0);
+        s.d_end_dt = make_vec3(0);
       } else if (s.life <= 0.2) {
-        s.growth_cm_per_tick = 0.98 * s.growth_cm_per_tick;
+        s.d_end_dt = 0.98 * s.d_end_dt;
       }
     }
   };
@@ -1284,14 +1285,14 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     auto fluctuation_dir_period_cm = 12.0;
     auto fluctuation = perlin_noise2(fluctuation_period_cm, s.end.x, s.end.y);
     auto fluctuation_direction = interpolate_linear(
-      s.growth_cm_per_tick, make_vec3(0, 1),
+      s.d_end_dt, make_vec3(0, 1),
       perlin_noise2(fluctuation_dir_period_cm, s.end.x - s.start.x,
                     s.end.y - s.start.y));
     auto magnitude = 0.8;
     s.end = s.end + magnitude * fluctuation_direction * fluctuation;
   };
   auto strategy_three = [&](stem &stem) {
-    linear_growth(stem);
+    integrate(stem);
     assert(valid_stem(stem));
     apply_density_force(stem);
     assert(valid_stem(stem));
