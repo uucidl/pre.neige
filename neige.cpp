@@ -2042,7 +2042,7 @@ internal_symbol u8 bit_scan_reverse32(u32 x)
 }
 #endif
 // (Os)
-#if defined(OS_OSX)
+#if OS==OS_OSX
 #include <mach/mach.h> // for vm_allocate
 #include <unistd.h>    // for _exit
 internal_symbol void fatal() { _exit(-3); }
@@ -2064,7 +2064,7 @@ internal_symbol void vm_free(memory_size size, memory_address address)
 #error "Unimplemented OS module"
 #endif
 // (Micros)
-#if defined(OS_OSX)
+#if OS==OS_OSX
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 #pragma clang diagnostic ignored "-Wsign-conversion"
