@@ -31,6 +31,9 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
 #if !defined(COMPILER_CLANG) && defined(__clang__)
 #define COMPILER_CLANG
 #endif
+#if !defined(COMPILER_MSC) && defined(_MSC_VER)
+#define COMPILER_MSC
+#endif
 #if !defined(OS)
 #error "OS must be defined"
 #endif
@@ -43,8 +46,13 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
 #define URL(...)          // reference to a resource
 #define TAG(...)          // a tag, for documentation
 // (Compiler)
+#if defined(COMPILER_CLANG)
 #define CLANG_ATTRIBUTE(x) __attribute__((x))
 #define debugger_break() DOC("invoke debugger") asm("int3")
+#else
+#define CLANG_ATTRIBUTE(x)
+#define debugger_break() DOC("invoke debugger") __debugbreak()
+#endif
 #define global_variable DOC("mark global variables") static
 #define local_state DOC("mark locally persistent variables") static
 #define internal_symbol DOC("mark internal symbols") static
@@ -57,14 +65,19 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
 using u8 = unsigned char;
 using u16 = unsigned short;
 using u32 = unsigned int;
-using u64 = unsigned long;
 using s8 = signed char;
 using s16 = signed short;
 using s32 = signed int;
-using s64 = signed long;
 using bool32 = u32;
 using float32 = float;
 using float64 = double;
+#if OS==OS_OSX && CPU==CPU_IA64
+using u64 = unsigned long;
+using s64 = signed long;
+#elif OS==OS_WINDOWS && CPU==CPU_IA64
+using u64 = unsigned long long;
+using s64 = signed long long;
+#endif
 static_assert(sizeof(u8) == 1, "u8");
 static_assert(sizeof(s8) == 1, "s8");
 static_assert(sizeof(u16) == 2, "u16");
@@ -446,8 +459,8 @@ template <NumberConcept N> struct number_concept {
 };
 template <typename T> using Number = number_concept<T>;
 template <> struct number_concept<float32> {
-  static constexpr float32 min = -2e38;
-  static constexpr float32 max = +2e38;
+  static constexpr float32 min = -2e38f;
+  static constexpr float32 max = +2e38f;
 };
 // (Arithmetics)
 template <typename T> T absolute_value(T x) { return x < T(0) ? -x : x; }
@@ -908,6 +921,7 @@ struct TransientMemory {
 };
 global_variable struct TransientMemory transient_memory;
 global_variable struct MainMemory main_memory;
+#include <stdio.h> // for snprintf
 void render_next_gl3(unsigned long long micros, Display display)
 {
   auto saved_frame_allocator = transient_memory.frame_allocator;
@@ -951,8 +965,8 @@ void render_next_gl3(unsigned long long micros, Display display)
       vec3 white = {1.0f, 1.0f, 1.0f};
       vec3 colors[] = {green, pink, yellow, grey, bright_blue, white};
       u16 colors_size = container_size(colors);
-      local_state bool was_down = false;
-      bool is_down = ds4.buttons >> 4;
+      local_state bool32 was_down = false;
+      bool32 is_down = ds4.buttons >> 4;
       if (is_down) {
         local_state u16 color_index = 0;
         background_color = colors[color_index];
@@ -1154,9 +1168,11 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       return result;
     };
   local_state vine_header vine = allocate_vine(
-    &main_memory.allocator, 600, {-7.6, -5.8, 0},
+    &main_memory.allocator, 600,
+    make_vec3(float32(-7.6), float32(-5.8)),
     make_vec3(float32(4.0 / TICKS_PER_SECOND), float32(7.0 / TICKS_PER_SECOND)),
-    0.3, 30 * TICKS_PER_SECOND);
+    float32(0.3),
+    memory_size(30 * TICKS_PER_SECOND));
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
   aabb2 active_points_bounding_box = zero_aabb2();
@@ -1987,6 +2003,12 @@ int main(int argc, char **argv) DOC("application entry point")
 }
 // (CPU)
 #if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
+internal_symbol u8 bit_scan_reverse32(u32 x)
+{
+  u32 y;
+  asm("bsrl %1,%0" : "=r"(y) : "r"(x));
+  return y;
+}
 internal_symbol float64 cpu_abs(float64 x)
 {
   float64 y;
@@ -2003,12 +2025,6 @@ internal_symbol float64 cpu_cos(float64 x)
 {
   float64 y;
   asm("fcos" : "=t"(y) : "0"(x));
-  return y;
-}
-internal_symbol float64 cpu_sqrt(float64 x)
-{
-  float64 y;
-  asm("fsqrt" : "=t"(y) : "0"(x));
   return y;
 }
 internal_symbol bool cpu_finite(float64 x)
@@ -2034,11 +2050,43 @@ internal_symbol bool cpu_finite(float64 x)
   u16 triple = (yy.C3 << 2) | (yy.C2 << 1) | (yy.C0);
   return triple == 2 || triple == 4 || triple == 6;
 }
+internal_symbol float64 cpu_sqrt(float64 x)
+{
+  float64 y;
+  asm("fsqrt" : "=t"(y) : "0"(x));
+  return y;
+}
+#elif defined(COMPILER_MSC) && (CPU == CPU_IA32 || CPU == CPU_IA64)
+#include <intrin.h>
+#include <float.h>
+#include <math.h>
+/* see documentation: URL(https://msdn.microsoft.com/en-us/library/hh977023.aspx) */
 internal_symbol u8 bit_scan_reverse32(u32 x)
 {
-  u32 y;
-  asm("bsrl %1,%0" : "=r"(y) : "r"(x));
-  return y;
+  unsigned long index;
+  unsigned long mask = x;
+  _BitScanReverse(&index, mask);
+  return index;
+}
+internal_symbol inline float64 cpu_abs(float64 x)
+{
+    return fabs(x);
+}
+internal_symbol inline float64 cpu_sin(float64 x)
+{
+    return sin(x);
+}
+internal_symbol inline float64 cpu_cos(float64 x)
+{
+    return cos(x);
+}
+internal_symbol bool cpu_finite(float64 x)
+{
+    return _finite(x);
+}
+internal_symbol float64 cpu_sqrt(float64 x)
+{
+    return sqrtf(x);
 }
 #endif
 // (Os)
@@ -2060,6 +2108,20 @@ internal_symbol void vm_free(memory_size size, memory_address address)
     vm_deallocate(mach_task_self(), vm_address_t(address), size);
   fatal_ifnot(KERN_SUCCESS == vm_deallocate_result);
 }
+#elif OS==OS_WINDOWS
+#include <windows.h>
+internal_symbol void fatal() { ExitProcess(3); }
+internal_symbol memory_address vm_alloc(memory_size size)
+{
+    LPVOID address = 0;
+    DWORD flAllocationType = MEM_COMMIT | MEM_RESERVE;
+    DWORD flProtect = PAGE_READWRITE;
+    return memory_address(VirtualAlloc(address, size, flAllocationType, flProtect));
+}
+internal_symbol void vm_free(memory_size size, memory_address data)
+{
+    VirtualFree(data, size, MEM_RELEASE);
+}
 #else
 #error "Unimplemented OS module"
 #endif
@@ -2070,6 +2132,8 @@ internal_symbol void vm_free(memory_size size, memory_address address)
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #include "uu.micros/runtime/darwin_runtime.cpp"
 #pragma clang diagnostic pop
+#elif OS==OS_WINDOWS
+#include "uu.micros/runtime/nt_runtime.cpp"
 #endif
 // (uu.ticks)
 #pragma clang diagnostic push
@@ -2080,6 +2144,9 @@ internal_symbol void vm_free(memory_size size, memory_address address)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#if OS==OS_WINDOWS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 #define NANOVG_GL3_IMPLEMENTATION
 #include "nanovg/src/nanovg.c"
 #include "nanovg/src/nanovg.h"
