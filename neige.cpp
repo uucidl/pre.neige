@@ -71,14 +71,14 @@ using s32 = signed int;
 using bool32 = u32;
 using float32 = float;
 using float64 = double;
-#if OS==OS_OSX && CPU==CPU_X86_64
+#if OS == OS_OSX && CPU == CPU_X86_64
 using u64 = unsigned long;
 using s64 = signed long;
-#elif OS==OS_WINDOWS && CPU==CPU_X86_64
+#elif OS == OS_WINDOWS && CPU == CPU_X86_64
 using u64 = unsigned long long;
 using s64 = signed long long;
 #else
-#    error "define 64bit types"
+#error "define 64bit types"
 #endif
 static_assert(sizeof(u8) == 1, "u8");
 static_assert(sizeof(s8) == 1, "s8");
@@ -225,14 +225,14 @@ struct readable_concept<circular_ordinate<Ordinate>> {
   using readable_type = Readable<Ordinate>;
 };
 template <OrdinateConcept Ordinate>
-REQUIRES(WritableConcept<Ordinate>) Writable<Ordinate> &sink(
-  struct circular_ordinate<Ordinate> x)
+REQUIRES(WritableConcept<Ordinate>)
+Writable<Ordinate> &sink(struct circular_ordinate<Ordinate> x)
 {
   return sink(x.current);
 }
 template <OrdinateConcept Ordinate>
-REQUIRES(ReadableConcept<Ordinate>) Readable<Ordinate> const
-  &source(struct circular_ordinate<Ordinate> x)
+REQUIRES(ReadableConcept<Ordinate>)
+Readable<Ordinate> const &source(struct circular_ordinate<Ordinate> x)
 {
   return source(x.current);
 }
@@ -336,9 +336,9 @@ I set_step(I *pos_ptr, Writable<I> const &value)
   return old_pos;
 }
 template <OrdinateConcept I, UnaryPredicateConcept P>
-REQUIRES(Domain(P) == ValueType(InputOrdinateConcept)) I
-  find_if(I first, I last, P pred)
-    DOC("in [`first`, `last`) find the first position where `pred` is true")
+REQUIRES(Domain(P) == ValueType(InputOrdinateConcept))
+I find_if(I first, I last, P pred)
+  DOC("in [`first`, `last`) find the first position where `pred` is true")
 {
   while (first != last && !pred(source(first))) {
     first = successor(first);
@@ -358,10 +358,10 @@ O fill_n(O first, I n, ValueType<O> x)
 }
 template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
           UnaryFunctionConcept Op, typename Check = IntegerConcept<I>>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
-  for_each_n(InputOrdinateConcept first, I n, Op operation)
-    DOC("for `n` times, advance iterator `first` and apply `operation` on its "
-        "source")
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
+InputOrdinateConcept for_each_n(InputOrdinateConcept first, I n, Op operation)
+  DOC("for `n` times, advance iterator `first` and apply `operation` on its "
+      "source")
 {
   while (!zero(n)) {
     operation(source(first));
@@ -371,7 +371,8 @@ REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
   return first;
 }
 template <OrdinateConcept InputOrdinateConcept, UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
+InputOrdinateConcept
   for_each(InputOrdinateConcept first, InputOrdinateConcept last, Op operation)
     DOC("for `n` times, advance iterator `first` and apply `operation` on its "
         "source")
@@ -386,7 +387,8 @@ template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
           UnaryFunctionConcept Op>
 REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
          HomogeneousFunction(P, ValueType(InputOrdinateConcept)) &&
-         Domain(P) == ValueType(InputOrdinateConcept)) InputOrdinateConcept
+         Domain(P) == ValueType(InputOrdinateConcept))
+InputOrdinateConcept
   for_each_adjacent(InputOrdinateConcept first, InputOrdinateConcept last,
                     P equal, Op operation)
     DOC("in [`first`,`last`) advance iterator `first` and apply `operation` on "
@@ -406,11 +408,11 @@ REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
   return first;
 }
 template <OrdinateConcept I0, UnaryPredicateConcept OpPred>
-REQUIRES(Domain(Op) == ValueType(I0)) I0
-  sequential_partition_nonstable(I0 first, I0 last, OpPred op_pred)
-    DOC("non stable partition of the elements in [first, last), "
-        "where `op_pred` returns true for elements that must be "
-        "moved forward. returns the partition point.")
+REQUIRES(Domain(Op) == ValueType(I0))
+I0 sequential_partition_nonstable(I0 first, I0 last, OpPred op_pred)
+  DOC("non stable partition of the elements in [first, last), "
+      "where `op_pred` returns true for elements that must be "
+      "moved forward. returns the partition point.")
 {
   while (first != last) {
     auto &element = source(first);
@@ -442,8 +444,8 @@ REQUIRES(ValueType(I0) == ValueType(I1)) void copy_n_m(I0 from, C0 from_size,
 }
 template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1>
 REQUIRES(ValueType(I0) == ValueType(I1))
-  // TODO(nicolas): should actually return a pair
-  I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
+// TODO(nicolas): should actually return a pair
+I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
 {
   while (from_size > 0 && to != to_last) {
     sink(to) = source(from);
@@ -588,8 +590,8 @@ struct slab_allocator {
   memory_address unallocated_start;
   memory_size size;
 };
-internal_symbol slab_allocator
-make_slab_allocator(memory_address start, memory_size size)
+internal_symbol slab_allocator make_slab_allocator(memory_address start,
+                                                   memory_size size)
 {
   slab_allocator result;
   result.start = start;
@@ -597,8 +599,8 @@ make_slab_allocator(memory_address start, memory_size size)
   result.size = size;
   return result;
 }
-internal_symbol memory_address
-alloc(slab_allocator *slab_allocator, memory_size size)
+internal_symbol memory_address alloc(slab_allocator *slab_allocator,
+                                     memory_size size)
 {
   // TODO(nicolas): alignment and zeroing
   memory_size current_size =
@@ -652,8 +654,7 @@ struct DS4 {
 #pragma pack(push, 1)
 struct DS4Out DOC("Output message for wired connection")
   URL("https://github.com/chrippa/ds4drv/blob/master/ds4drv/device.py",
-      "wireless example")
-{
+      "wireless example") {
   u32 magic;
   u8 rumbler, rumblel, r, g, b, flashon, flashoff;
   u8 pad[32 - 11];
@@ -677,7 +678,9 @@ template <> inline float64 absolute_value(float64 x) { return cpu_abs(x); }
 // (Floats)
 bool valid(float32 x) { return finite(x); }
 // (Vector Math)
-struct vec3 MODELS(Regular) { float32 x, y, z; };
+struct vec3 MODELS(Regular) {
+  float32 x, y, z;
+};
 internal_symbol vec3 make_vec3(float32 v) { return {v, v, v}; }
 internal_symbol vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
 internal_symbol vec3 make_vec3(float32 x, float32 y, float32 z)
@@ -745,8 +748,7 @@ internal_symbol vec3 operator-(vec3 a, vec3 b)
   return addition(a, vec3{-b.x, -b.y, -b.z});
 }
 // (Bounding Box)
-struct aabb2 MODELS(SemiRegular)
-{
+struct aabb2 MODELS(SemiRegular) {
   float32 min_x;
   float32 max_x;
   float32 min_y;
@@ -816,8 +818,7 @@ bool contains(aabb2 bb, float32 x, float32 y)
 // PERSON(Pramod Gupta)
 // URL(https://www.youtube.com/watch?v=CPPX4kwqh80)
 // URL(https://github.com/astrobiology/orca_array)
-template <typename T, typename I> struct array2_header MODELS(container)
-{
+template <typename T, typename I> struct array2_header MODELS(container) {
   T *memory;
   I memory_size;
   I d0_count;
@@ -889,8 +890,7 @@ enum GlobalEvents : u64 {
   GlobalEvents_PressedDown = 1 << 0,
 };
 global_variable u64 global_events = 0;
-struct audio_sample_header DOC("a clip of audio data")
-{
+struct audio_sample_header DOC("a clip of audio data") {
   float64 start_time;
   float64 end_time;
   float64 data_rate_hz;
@@ -1098,39 +1098,39 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
     vine_stem_history_header *last_history_pos;
     u32 next_stem_id;
   };
-  auto allocate_vine_stem_history =
-    [](slab_allocator *allocator, memory_size max_path_size) {
-      vine_stem_history_header result = {};
-      alloc_array(allocator, max_path_size, &result.path_storage);
-      return result;
-    };
-  auto init_vine_stem_history =
-    [](vine_stem_history_header *dest, u32 stem_id) {
-      auto &y = sink(dest);
-      y.stem_id = stem_id;
-      y.bounding_box = zero_aabb2();
-      y.last_point_pos =
-        make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
-      y.point_count = 0;
-      y.last_observed_point = {};
-      y.recyclable = false;
-    };
-  auto init_vine_stem =
-    [](stem *dest, vec3 start, vec3 growth_cm_per_tick,
-       float32 bifurcation_threshold, u32 generation_count) {
-      auto &y = sink(dest);
-      fatal_if(y.stem_id == NULL_STEM_ID);
-      y.start = start;
-      y.end = start;
-      y.growth_cm_per_tick = growth_cm_per_tick;
-      y.energy_spent = 0.0;
-      y.life = 1.0;
-      y.bifurcation_energy_spent = 0.0;
-      y.bifurcation_bit = 0;
-      y.twirl = 0.0;
-      y.generation_count = generation_count;
-      y.bifurcation_threshold = bifurcation_threshold;
-    };
+  auto allocate_vine_stem_history = [](slab_allocator *allocator,
+                                       memory_size max_path_size) {
+    vine_stem_history_header result = {};
+    alloc_array(allocator, max_path_size, &result.path_storage);
+    return result;
+  };
+  auto init_vine_stem_history = [](vine_stem_history_header *dest,
+                                   u32 stem_id) {
+    auto &y = sink(dest);
+    y.stem_id = stem_id;
+    y.bounding_box = zero_aabb2();
+    y.last_point_pos =
+      make_circular_ordinate(begin(y.path_storage), end(y.path_storage));
+    y.point_count = 0;
+    y.last_observed_point = {};
+    y.recyclable = false;
+  };
+  auto init_vine_stem = [](stem *dest, vec3 start, vec3 growth_cm_per_tick,
+                           float32 bifurcation_threshold,
+                           u32 generation_count) {
+    auto &y = sink(dest);
+    fatal_if(y.stem_id == NULL_STEM_ID);
+    y.start = start;
+    y.end = start;
+    y.growth_cm_per_tick = growth_cm_per_tick;
+    y.energy_spent = 0.0;
+    y.life = 1.0;
+    y.bifurcation_energy_spent = 0.0;
+    y.bifurcation_bit = 0;
+    y.twirl = 0.0;
+    y.generation_count = generation_count;
+    y.bifurcation_threshold = bifurcation_threshold;
+  };
   auto push_vine_stem = [=](vine_header *dest) -> PointerOf<stem> {
     auto &y = sink(dest);
     auto stem_pos = step_within(y.stem_storage, &y.last_stem_pos);
@@ -1148,33 +1148,31 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
   alloc_array(&transient_memory.frame_allocator,
               u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
   stem *last_created_stem = begin(created_stems);
-  auto allocate_vine =
-    [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
-        vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
-      vine_header result;
-      alloc_array(allocator, max_stem_count, &result.stem_storage);
-      result.last_stem_pos = begin(result.stem_storage);
-      alloc_array(allocator, max_stem_count / 10, &result.history_storage);
-      result.last_history_pos = begin(result.history_storage);
-      for_each_n(begin(result.history_storage),
-                 container_size(result.history_storage),
-                 [&](vine_stem_history_header &y) {
-                   y = allocate_vine_stem_history(allocator, max_path_size);
-                 });
-      result.next_stem_id = 1;
-      auto stem_ptr = push_vine_stem(&result);
-      if (stem_ptr) {
-        init_vine_stem(stem_ptr, start, growth, bifurcation_threshold, 0);
-        set_step_within(created_stems, &last_created_stem, *stem_ptr);
-      }
-      return result;
-    };
+  auto allocate_vine = [&](
+    slab_allocator *allocator, memory_size max_stem_count, vec3 start,
+    vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+    vine_header result;
+    alloc_array(allocator, max_stem_count, &result.stem_storage);
+    result.last_stem_pos = begin(result.stem_storage);
+    alloc_array(allocator, max_stem_count / 10, &result.history_storage);
+    result.last_history_pos = begin(result.history_storage);
+    for_each_n(begin(result.history_storage),
+               container_size(result.history_storage),
+               [&](vine_stem_history_header &y) {
+                 y = allocate_vine_stem_history(allocator, max_path_size);
+               });
+    result.next_stem_id = 1;
+    auto stem_ptr = push_vine_stem(&result);
+    if (stem_ptr) {
+      init_vine_stem(stem_ptr, start, growth, bifurcation_threshold, 0);
+      set_step_within(created_stems, &last_created_stem, *stem_ptr);
+    }
+    return result;
+  };
   local_state vine_header vine = allocate_vine(
-    &main_memory.allocator, 600,
-    make_vec3(float32(-7.6), float32(-5.8)),
+    &main_memory.allocator, 600, make_vec3(float32(-7.6), float32(-5.8)),
     make_vec3(float32(4.0 / TICKS_PER_SECOND), float32(7.0 / TICKS_PER_SECOND)),
-    float32(0.3),
-    memory_size(30 * TICKS_PER_SECOND));
+    float32(0.3), memory_size(30 * TICKS_PER_SECOND));
   vec3 active_points_running_sum = {};
   u8 active_points_count = 0;
   aabb2 active_points_bounding_box = zero_aabb2();
@@ -1194,8 +1192,9 @@ internal_symbol void vine_effect(Display const &display) TAG("visuals")
       active_points_bounding_box =
         cover(active_points_bounding_box, tip.x, tip.y);
     }
-  auto linear_growth =
-    [&](stem &stem) { stem.end = stem.end + stem.growth_cm_per_tick; };
+  auto linear_growth = [&](stem &stem) {
+    stem.end = stem.end + stem.growth_cm_per_tick;
+  };
   auto apply_density_force = [&](stem &stem) {
     if (!stem.apply_density_force) return;
     stem.end = stem.end + stem.density_force;
@@ -1692,8 +1691,8 @@ struct music_header {
   counted_range<music_event, memory_size> events;
   u32 last_step;
 };
-internal_symbol music_header
-alloc_music_header(slab_allocator *allocator, memory_size max_event_count)
+internal_symbol music_header alloc_music_header(slab_allocator *allocator,
+                                                memory_size max_event_count)
 {
   music_header result;
   alloc_array(allocator, max_event_count, &result.events_storage);
@@ -1779,8 +1778,8 @@ internal_symbol float64 semitones_freq_hz(float64 root_freq_hz, s8 semitones)
 {
   return root_freq_hz * pow(2.0, semitones / 12.0);
 }
-internal_symbol float64
-major_scale_freq_hz(float64 root_freq_hz, s8 major_scale_offset)
+internal_symbol float64 major_scale_freq_hz(float64 root_freq_hz,
+                                            s8 major_scale_offset)
 {
   s8 note_semitones = major_scale_semitones(major_scale_offset);
   float64 freq_hz = semitones_freq_hz(root_freq_hz, note_semitones);
@@ -1835,9 +1834,8 @@ void render_next_2chn_48khz_audio(unsigned long long now_micros,
     }
   }
 }
-internal_symbol audio_sample_header
-make_audio_sample(slab_allocator *slab_allocator, u32 sample_count,
-                  float64 data_rate_hz)
+internal_symbol audio_sample_header make_audio_sample(
+  slab_allocator *slab_allocator, u32 sample_count, float64 data_rate_hz)
 {
   audio_sample_header header;
   header.start_time = 0.0;
@@ -2062,7 +2060,8 @@ internal_symbol float64 cpu_sqrt(float64 x)
 #include <intrin.h>
 #include <float.h>
 #include <math.h>
-/* see documentation: URL(https://msdn.microsoft.com/en-us/library/hh977023.aspx) */
+/* see documentation:
+ * URL(https://msdn.microsoft.com/en-us/library/hh977023.aspx) */
 internal_symbol u8 bit_scan_reverse32(u32 x)
 {
   unsigned long index;
@@ -2070,29 +2069,14 @@ internal_symbol u8 bit_scan_reverse32(u32 x)
   _BitScanReverse(&index, mask);
   return index;
 }
-internal_symbol inline float64 cpu_abs(float64 x)
-{
-    return fabs(x);
-}
-internal_symbol inline float64 cpu_sin(float64 x)
-{
-    return sin(x);
-}
-internal_symbol inline float64 cpu_cos(float64 x)
-{
-    return cos(x);
-}
-internal_symbol bool cpu_finite(float64 x)
-{
-    return _finite(x);
-}
-internal_symbol float64 cpu_sqrt(float64 x)
-{
-    return sqrtf(x);
-}
+internal_symbol inline float64 cpu_abs(float64 x) { return fabs(x); }
+internal_symbol inline float64 cpu_sin(float64 x) { return sin(x); }
+internal_symbol inline float64 cpu_cos(float64 x) { return cos(x); }
+internal_symbol bool cpu_finite(float64 x) { return _finite(x); }
+internal_symbol float64 cpu_sqrt(float64 x) { return sqrtf(x); }
 #endif
 // (Os)
-#if OS==OS_OSX
+#if OS == OS_OSX
 #include <mach/mach.h> // for vm_allocate
 #include <unistd.h>    // for _exit
 internal_symbol void fatal() { _exit(-3); }
@@ -2110,31 +2094,32 @@ internal_symbol void vm_free(memory_size size, memory_address address)
     vm_deallocate(mach_task_self(), vm_address_t(address), size);
   fatal_ifnot(KERN_SUCCESS == vm_deallocate_result);
 }
-#elif OS==OS_WINDOWS
+#elif OS == OS_WINDOWS
 #include <windows.h>
 internal_symbol void fatal() { ExitProcess(3); }
 internal_symbol memory_address vm_alloc(memory_size size)
 {
-    LPVOID address = 0;
-    DWORD flAllocationType = MEM_COMMIT | MEM_RESERVE;
-    DWORD flProtect = PAGE_READWRITE;
-    return memory_address(VirtualAlloc(address, size, flAllocationType, flProtect));
+  LPVOID address = 0;
+  DWORD flAllocationType = MEM_COMMIT | MEM_RESERVE;
+  DWORD flProtect = PAGE_READWRITE;
+  return memory_address(
+    VirtualAlloc(address, size, flAllocationType, flProtect));
 }
 internal_symbol void vm_free(memory_size size, memory_address data)
 {
-    VirtualFree(data, size, MEM_RELEASE);
+  VirtualFree(data, size, MEM_RELEASE);
 }
 #else
 #error "Unimplemented OS module"
 #endif
 // (Micros)
-#if OS==OS_OSX
+#if OS == OS_OSX
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #include "uu.micros/runtime/darwin_runtime.cpp"
 #pragma clang diagnostic pop
-#elif OS==OS_WINDOWS
+#elif OS == OS_WINDOWS
 #include "uu.micros/runtime/nt_runtime.cpp"
 #endif
 // (uu.ticks)
@@ -2146,7 +2131,7 @@ internal_symbol void vm_free(memory_size size, memory_address data)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wmissing-field-initializers"
-#if OS==OS_WINDOWS
+#if OS == OS_WINDOWS
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #define NANOVG_GL3_IMPLEMENTATION
