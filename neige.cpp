@@ -19,13 +19,13 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
     but do not manage these resources.
  */
 // (Platform Configuration)
-#define CPU_IA32 (1)
-#define CPU_IA64 (2)
+#define CPU_IA32 (1) DOC("32bit intel platform")
+#define CPU_X86_64 (2) DOC("x64 introduced by AMD and adopted by intel")
 #define OS_OSX (1)
 #define OS_WINDOWS (2)
 #if OS == OS_OSX
 #if !defined(CPU)
-#define CPU CPU_IA64
+#define CPU CPU_X86_64
 #endif
 #endif
 #if !defined(COMPILER_CLANG) && defined(__clang__)
@@ -71,12 +71,14 @@ using s32 = signed int;
 using bool32 = u32;
 using float32 = float;
 using float64 = double;
-#if OS==OS_OSX && CPU==CPU_IA64
+#if OS==OS_OSX && CPU==CPU_X86_64
 using u64 = unsigned long;
 using s64 = signed long;
-#elif OS==OS_WINDOWS && CPU==CPU_IA64
+#elif OS==OS_WINDOWS && CPU==CPU_X86_64
 using u64 = unsigned long long;
 using s64 = signed long long;
+#else
+#    error "define 64bit types"
 #endif
 static_assert(sizeof(u8) == 1, "u8");
 static_assert(sizeof(s8) == 1, "s8");
@@ -2002,7 +2004,7 @@ int main(int argc, char **argv) DOC("application entry point")
   vm_free(all_memory_size, all_memory);
 }
 // (CPU)
-#if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_IA64)
+#if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_X86_64)
 internal_symbol u8 bit_scan_reverse32(u32 x)
 {
   u32 y;
@@ -2056,7 +2058,7 @@ internal_symbol float64 cpu_sqrt(float64 x)
   asm("fsqrt" : "=t"(y) : "0"(x));
   return y;
 }
-#elif defined(COMPILER_MSC) && (CPU == CPU_IA32 || CPU == CPU_IA64)
+#elif defined(COMPILER_MSC) && (CPU == CPU_IA32 || CPU == CPU_X86_64)
 #include <intrin.h>
 #include <float.h>
 #include <math.h>
