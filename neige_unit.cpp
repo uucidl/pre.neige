@@ -863,7 +863,8 @@ memory_size container_size(array2_header<T, I> const &x)
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
-internal_symbol void vine_effect(Display const &display, bool paused)
+struct TransientMemory;
+internal_symbol void vine_effect(TransientMemory& transient_memory, Display const &display, bool paused)
   TAG("visuals");
 global_variable hid_device *global_optional_ds4;
 internal_symbol NVGcontext *nvg_create_context();
@@ -1030,7 +1031,7 @@ void render_next_gl3(unsigned long long micros, Display display)
     }
     last_micros = micros;
   }
-  DOC("main effect") { vine_effect(display, paused); }
+  DOC("main effect") { vine_effect(transient_memory, display, paused); }
   transient_memory.frame_allocator = saved_frame_allocator;
 }
 internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)

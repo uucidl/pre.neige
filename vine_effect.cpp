@@ -25,7 +25,7 @@ bool valid_stem(stem stem)
          valid(stem.bifurcation_energy_spent) &&
          valid(stem.bifurcation_threshold);
 }
-internal_symbol void vine_effect(Display const &display, bool paused)
+internal_symbol void vine_effect(TransientMemory& transient_memory, Display const &display, bool paused)
   TAG("visuals") DOC("growing a plant like organism")
 {
   struct vine_stem_history_header {
