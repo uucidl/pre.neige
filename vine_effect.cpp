@@ -303,8 +303,9 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         fill_n(begin(density), container_size(density), float32(0.0));
 
         {
-          float32 y0 = simulation_grid.bounding_box.min_y;
-          float32 x0 = simulation_grid.bounding_box.min_x;
+          float32 const y0 = simulation_grid.bounding_box.min_y;
+          float32 const x0 = simulation_grid.bounding_box.min_x;
+          float32 const block_area_reciprocal = 1.0f/square(simulation_grid.step);
           for_each(begin(vine.stem_storage), vine.last_stem_pos,
                    [&](stem &stem) {
                      float32 xs = (stem.end.x - x0) / simulation_grid.step;
@@ -313,7 +314,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
                      if (ys < 0.0 || ys >= NY) return;
                      auto xi = u32(xs);
                      auto yi = u32(ys);
-                     *at(density, xi, yi) += 1.0;
+                     *at(density, xi, yi) += 1.0*block_area_reciprocal;
                    });
           for_each(
             begin(vine.history_storage), vine.last_history_pos,
@@ -329,7 +330,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
                   if (ys < 0.0 || ys >= NY) return;
                   auto xi = u32(xs);
                   auto yi = u32(ys);
-                  *at(density, xi, yi) += 1.0;
+                  *at(density, xi, yi) += 1.0*block_area_reciprocal;
                 });
             });
         }
