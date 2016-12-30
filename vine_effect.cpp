@@ -499,12 +499,8 @@ rendering:
                   int(display.framebuffer_height_px),
                   1.0); // should be 2.0 on retina
     nvgReset(vg);
-    auto halfwidth = camera_halfsize.x;
-    if (0) DOC("turn debug camera on")
-      {
-        halfwidth = 0.5 * 1.5 * (eviction_bb.max_x - eviction_bb.min_x);
-      }
-    auto cm_to_display = display.framebuffer_width_px / (2.0 * halfwidth);
+    auto const halfwidth = camera_halfsize.x;
+    auto const cm_to_display = display.framebuffer_width_px / (2.0 * halfwidth);
     vec3 center_in_screen_coordinates =
       make_vec3(display.framebuffer_width_px / 2.0,
                 display.framebuffer_height_px / 2.0) +
