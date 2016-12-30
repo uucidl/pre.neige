@@ -538,9 +538,10 @@ rendering:
         for (u32 yi = 0; yi < NY; ++yi) {
           float32 x0 = simulation_grid.bounding_box.min_x;
           for (u32 xi = 0; xi < NX; ++xi) {
-            float32 d = *at(density, xi, yi) / 4.0;
+            float32 d = *at(density, xi, yi);
             nvgBeginPath(vg);
-            nvgFillColor(vg, nvgRGBA(80, 125, 80, 128.0 * d));
+            float alpha = min(1.0, d / 8.0);
+            nvgFillColor(vg, nvgRGBA(80, 125, 80, 255.0 * alpha));
             nvgRect(vg, x0, y0, step, step);
             nvgFill(vg);
             x0 += step;
