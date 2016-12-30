@@ -477,7 +477,7 @@ template <typename T> bool operator!=(T a, T b) { return !(a == b); }
 template <typename T> T operator+(T a, T b) { return addition(a, b); }
 template <typename T> T min(T a, T b) { return a < b ? a : b; }
 template <typename T> T max(T a, T b) { return !(a < b) ? a : b; }
-template <typename N> N square(N n) { return n * n; }
+template <typename N> N squared(N n) { return n * n; }
 template <typename T> T interpolate_linear(T a, T b, float64 a_b)
 {
   return (1.0 - a_b) * a + a_b * b;

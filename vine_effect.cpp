@@ -167,8 +167,8 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         if (stem.generation_count >= 0 && twirl_distance > 0.01 &&
             stem.energy_spent >= twirl_threshold) {
           stem.twirl =
-            10 * mag * min(1.0, square(stem.energy_spent - twirl_threshold) /
-                                  square(twirl_distance));
+            10 * mag * min(1.0, squared(stem.energy_spent - twirl_threshold) /
+                                  squared(twirl_distance));
         } else {
           stem.twirl = 0.0;
         }
@@ -305,7 +305,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         {
           float32 const y0 = simulation_grid.bounding_box.min_y;
           float32 const x0 = simulation_grid.bounding_box.min_x;
-          float32 const block_area_reciprocal = 1.0f/square(simulation_grid.step);
+          float32 const block_area_reciprocal = 1.0f/squared(simulation_grid.step);
           for_each(begin(vine.stem_storage), vine.last_stem_pos,
                    [&](stem &stem) {
                      float32 xs = (stem.end.x - x0) / simulation_grid.step;
@@ -377,7 +377,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
                        auto sxi = u32(xs);
                        auto syi = u32(ys);
                        if (sxi != xi || syi != yi) return;
-                       auto force = 0.003 * square(v00 - 1.0) * du;
+                       auto force = 0.003 * squared(v00 - 1.0) * du;
                        stem.density_force = force;
                        stem.dd_end_dtdt = stem.dd_end_dtdt + force;
                      });
@@ -429,7 +429,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
             squared_euclidean_distance(previous_point, point);
           auto last_observed_point = history.last_observed_point;
           history.last_observed_point = point;
-          if (d_to_previous >= square(0.3)) {
+          if (d_to_previous >= squared(0.3)) {
             history.bounding_box =
               cover(history.bounding_box, point.x, point.y);
             set_step(&history.last_point_pos, point);
@@ -487,7 +487,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
             1000.0 / desired_camera_halfsize.x * desired_camera_halfsize;
         }
         camera_halfsize = interpolate_linear(
-          camera_halfsize, desired_camera_halfsize, square(0.05));
+          camera_halfsize, desired_camera_halfsize, squared(0.05));
         assert(valid(camera_halfsize));
         fatal_ifnot(valid(camera_halfsize));
       }
