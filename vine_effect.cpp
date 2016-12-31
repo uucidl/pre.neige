@@ -389,7 +389,7 @@ internal_symbol void vine_effect(TransientMemory &transient_memory,
                        auto sxi = u32(xs);
                        auto syi = u32(ys);
                        if (sxi != xi || syi != yi) return;
-                       auto force = 0.003 * squared(v00 - 1.0) * du;
+                       auto force = 0.0003 * squared(v00) * du;
                        stem.density_force = force;
                        stem.dd_end_dtdt = stem.dd_end_dtdt + force;
                      });
