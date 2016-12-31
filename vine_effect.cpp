@@ -25,7 +25,8 @@ bool valid_stem(stem stem)
          valid(stem.bifurcation_energy_spent) &&
          valid(stem.bifurcation_threshold);
 }
-internal_symbol void vine_effect(TransientMemory& transient_memory, Display const &display, bool paused)
+internal_symbol void vine_effect(TransientMemory &transient_memory,
+                                 Display const &display, bool paused)
   TAG("visuals") DOC("growing a plant like organism")
 {
   struct vine_stem_history_header {
@@ -95,27 +96,27 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
   alloc_array(&transient_memory.frame_allocator,
               u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
   stem *last_created_stem = begin(created_stems);
-  auto allocate_vine = [&](
-    slab_allocator *allocator, memory_size max_stem_count, vec3 start,
-    vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
-    vine_header result;
-    alloc_array(allocator, max_stem_count, &result.stem_storage);
-    result.last_stem_pos = begin(result.stem_storage);
-    alloc_array(allocator, max_stem_count / 10, &result.history_storage);
-    result.last_history_pos = begin(result.history_storage);
-    for_each_n(begin(result.history_storage),
-               container_size(result.history_storage),
-               [&](vine_stem_history_header &y) {
-                 y = allocate_vine_stem_history(allocator, max_path_size);
-               });
-    result.next_stem_id = 1;
-    auto stem_ptr = push_vine_stem(&result);
-    if (stem_ptr) {
-      init_vine_stem(stem_ptr, start, growth, bifurcation_threshold, 0);
-      set_step_within(created_stems, &last_created_stem, *stem_ptr);
-    }
-    return result;
-  };
+  auto allocate_vine =
+    [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
+        vec3 growth, float32 bifurcation_threshold, memory_size max_path_size) {
+      vine_header result;
+      alloc_array(allocator, max_stem_count, &result.stem_storage);
+      result.last_stem_pos = begin(result.stem_storage);
+      alloc_array(allocator, max_stem_count / 10, &result.history_storage);
+      result.last_history_pos = begin(result.history_storage);
+      for_each_n(begin(result.history_storage),
+                 container_size(result.history_storage),
+                 [&](vine_stem_history_header &y) {
+                   y = allocate_vine_stem_history(allocator, max_path_size);
+                 });
+      result.next_stem_id = 1;
+      auto stem_ptr = push_vine_stem(&result);
+      if (stem_ptr) {
+        init_vine_stem(stem_ptr, start, growth, bifurcation_threshold, 0);
+        set_step_within(created_stems, &last_created_stem, *stem_ptr);
+      }
+      return result;
+    };
   local_state vine_header vine = allocate_vine(
     &main_memory.allocator, 600, make_vec3(float32(-7.6), float32(-5.8)),
     make_vec3(float32(4.0 / TICKS_PER_SECOND), float32(7.0 / TICKS_PER_SECOND)),
@@ -131,6 +132,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
   vec3 active_point_average = make_vec3(0);
   grid2 simulation_grid;
   array2_header<float32, u32> density;
+  array2_header<bool, u32> density_degenerate_tag;
   if (paused) goto rendering;
   {
     vec3 active_points_running_sum = {};
@@ -167,8 +169,9 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         if (stem.generation_count >= 0 && twirl_distance > 0.01 &&
             stem.energy_spent >= twirl_threshold) {
           stem.twirl =
-            10 * mag * min(1.0, squared(stem.energy_spent - twirl_threshold) /
-                                  squared(twirl_distance));
+            10 * mag * min(1.0,
+                           squared(stem.energy_spent - twirl_threshold) /
+                             squared(twirl_distance));
         } else {
           stem.twirl = 0.0;
         }
@@ -296,16 +299,24 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         u32 NX = density_NX;
         u32 NY = density_NY;
         counted_range<float32, u32> density_memory;
+        counted_range<bool, u32> density_degenerate_tag_memory;
         alloc_array(&transient_memory.frame_allocator, density_NX * density_NY,
                     &density_memory);
+        alloc_array(&transient_memory.frame_allocator, density_NX * density_NY,
+                    &density_degenerate_tag_memory);
         density = make_array2(density_memory.first, density_memory.count,
                               density_NX, density_NY);
+        density_degenerate_tag = make_array2(
+          density_degenerate_tag_memory.first,
+          density_degenerate_tag_memory.count, density_NX, density_NY);
         fill_n(begin(density), container_size(density), float32(0.0));
-
+        fill_n(begin(density_degenerate_tag),
+               container_size(density_degenerate_tag), false);
         {
           float32 const y0 = simulation_grid.bounding_box.min_y;
           float32 const x0 = simulation_grid.bounding_box.min_x;
-          float32 const block_area_reciprocal = 1.0f/squared(simulation_grid.step);
+          float32 const block_area_reciprocal =
+            1.0f / squared(simulation_grid.step);
           for_each(begin(vine.stem_storage), vine.last_stem_pos,
                    [&](stem &stem) {
                      float32 xs = (stem.end.x - x0) / simulation_grid.step;
@@ -314,7 +325,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
                      if (ys < 0.0 || ys >= NY) return;
                      auto xi = u32(xs);
                      auto yi = u32(ys);
-                     *at(density, xi, yi) += 1.0*block_area_reciprocal;
+                     *at(density, xi, yi) += 1.0 * block_area_reciprocal;
                    });
           for_each(
             begin(vine.history_storage), vine.last_history_pos,
@@ -330,7 +341,7 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
                   if (ys < 0.0 || ys >= NY) return;
                   auto xi = u32(xs);
                   auto yi = u32(ys);
-                  *at(density, xi, yi) += 1.0*block_area_reciprocal;
+                  *at(density, xi, yi) += 1.0 * block_area_reciprocal;
                 });
             });
         }
@@ -346,18 +357,19 @@ internal_symbol void vine_effect(TransientMemory& transient_memory, Display cons
         float32 x1 = x0 + step;
         for (u32 yi = 1; yi < NY - 1; ++yi) {
           for (u32 xi = 1; xi < NX - 1; ++xi) {
-            auto v00 = *at(density, xi, yi) / step;
+            auto v00 = *at(density, xi, yi);
             if (v00 == 0.0) continue;
-            auto vl0 = *at(density, xi + 1, yi) / step;
-            auto vr0 = *at(density, xi - 1, yi) / step;
-            auto v0d = *at(density, xi, yi - 1) / step;
-            auto v0u = *at(density, xi, yi + 1) / step;
-            auto dvx = (vr0 - vl0) / 2.0 / step;
-            auto dvy = (v0u - v0d) / 2.0 / step;
+            auto vl0 = *at(density, xi - 1, yi);
+            auto vr0 = *at(density, xi + 1, yi);
+            auto v0d = *at(density, xi, yi - 1);
+            auto v0u = *at(density, xi, yi + 1);
+            auto dvx = (vr0 - vl0) / 2.0;
+            auto dvy = (v0u - v0d) / 2.0;
             auto dvec = make_vec3(dvx, dvy);
             auto dvec_norm = euclidean_norm(dvec);
             if (dvec_norm == 0.0) TAG(degenerate)
               {
+                *at(density_degenerate_tag, xi, yi) = true;
                 if (v0d == 0.0) {
                   dvec = make_vec3(0.0, 1.0);
                 } else if (v0u == 0.0) {
@@ -537,8 +549,11 @@ rendering:
           for (u32 xi = 0; xi < NX; ++xi) {
             float32 d = *at(density, xi, yi);
             nvgBeginPath(vg);
-            float alpha = min(1.0, d / 8.0);
-            nvgFillColor(vg, nvgRGBA(80, 125, 80, 255.0 * alpha));
+            float alpha = 255.0 * min(1.0, d / 8.0);
+            nvgFillColor(vg, nvgRGBA(80, 125, 80, alpha));
+            if (*at(density_degenerate_tag, xi, yi)) {
+              nvgFillColor(vg, nvgRGBA(255, 125, 80, alpha));
+            }
             nvgRect(vg, x0, y0, step, step);
             nvgFill(vg);
             x0 += step;
