@@ -875,6 +875,7 @@ internal_symbol hid_device *query_ds4(u64 micros)
   // capabilities. Would we gain knowledge about the DS4 gyro min/max?
   local_state u64 last_check_micros = 0;
   if (!global_optional_ds4 && micros - last_check_micros > 3000000) {
+    last_check_micros = micros;
     global_optional_ds4 =
       hid_open(DS4Constants_VendorId, DS4Constants_ProductId, nullptr);
     if (global_optional_ds4) {
