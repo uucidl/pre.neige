@@ -169,9 +169,8 @@ internal_symbol void vine_effect(TransientMemory &transient_memory,
         if (stem.generation_count >= 0 && twirl_distance > 0.01 &&
             stem.energy_spent >= twirl_threshold) {
           stem.twirl =
-            10 * mag * min(1.0,
-                           squared(stem.energy_spent - twirl_threshold) /
-                             squared(twirl_distance));
+            10 * mag * min(1.0, squared(stem.energy_spent - twirl_threshold) /
+                                  squared(twirl_distance));
         } else {
           stem.twirl = 0.0;
         }
