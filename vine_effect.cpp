@@ -259,13 +259,11 @@ internal_symbol void vine_effect(TransientMemory &transient_memory,
       stem.dd_end_dtdt = make_vec3(0); /* reset forces */
       bifurcate(stem);
       assert(valid_stem(stem));
-#if NEIGE_DISABLED
       twirl_force(stem);
       assert(valid_stem(stem));
       assert(valid_stem(stem));
       growth_noise(stem);
       assert(valid_stem(stem));
-#endif
     };
     DOC("grow vine")
     {
