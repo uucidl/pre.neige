@@ -12,3 +12,8 @@ out tags.
 Thirdly, vine_effect.cpp tries to show how to build a complex system out of
 multiple independent pieces that are contributing to a whole.
 
+TODO(nicolas): actually make vine_effect.cpp more associative. There is a lot
+of interdependency created by those templates which isn't really adequate with
+the C/C++ model of compilation. I can see it in how defining operator+ created
+a build failure after win32 was included. See https://gist.github.com/uucidl/0874c6e1e25d0db43d232bbd2c1b0bda
+
