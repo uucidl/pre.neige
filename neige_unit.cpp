@@ -1481,6 +1481,8 @@ internal_symbol void vm_free(memory_size size, memory_address address)
   fatal_ifnot(KERN_SUCCESS == vm_deallocate_result);
 }
 #elif OS == OS_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 internal_symbol void fatal() { ExitProcess(3); }
 internal_symbol memory_address vm_alloc(memory_size size)
