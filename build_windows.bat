@@ -14,7 +14,8 @@ cl -c -Fo:output\hid.obj -I %HIDAPIDir%\hidapi %HIDAPIDir%\windows\hid.c
 @set CLWarnings=-wd4457 -wd4244 -wd4305 -wd4267 -wd4996 -wd4505 %CLWarnings%
 @set CLWarnings=-wd4800 %CLWarnings%
 @set Defines=-DOS=OS_WINDOWS -DCPU=CPU_X86_64 -DNEIGE_SLOW
-cl %CommonCLFlags% -Fo:output\ -Fe:neige neige_unit.cpp %MicrosCLFlags% %HIDAPIProducts% -nologo -EHsc -FC %Defines% %CLWarnings% ^
+cl %CommonCLFlags% -Fo:output\ -Fe:output\neige.exe %HIDAPIProducts% -nologo -EHsc -FC %Defines% %CLWarnings% ^
+  neige_unit.cpp %MicrosCLFlags% ^
   -link -NODEFAULTLIB:libcmt.lib -NODEFAULTLIB:libc.lib -NODEFAULTLIB:libcd.lib ^
         -NODEFAULTLIB:libcmtd.lib -NODEFAULTLIB:msvcrtd.lib ^
         legacy_stdio_definitions.lib
