@@ -20,41 +20,12 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
   - types named `_header` are non-owning. They refer to remote parts
     but do not manage these resources.
  */
-// (Platform Configuration)
-#define CPU_IA32 (1) DOC("32bit intel platform")
-#define CPU_X86_64 (2) DOC("x64 introduced by AMD and adopted by intel")
-#define OS_OSX (1)
-#define OS_WINDOWS (2)
-#if OS == OS_OSX
-#if !defined(CPU)
-#define CPU CPU_X86_64
-#endif
-#endif
-#if !defined(COMPILER_CLANG) && defined(__clang__)
-#define COMPILER_CLANG
-#endif
-#if !defined(COMPILER_MSC) && defined(_MSC_VER)
-#define COMPILER_MSC
-#endif
-#if !defined(OS)
-#error "OS must be defined"
-#endif
-#if !defined(CPU)
-#error "CPU must be defined"
-#endif
 // (Meta)
 #define DOC(...)          // to document a symbol
 #define DOC_COUPLING(...) // to document coupling w/ other symbols
 #define URL(...)          // reference to a resource
 #define TAG(...)          // a tag, for documentation
 // (Compiler)
-#if defined(COMPILER_CLANG)
-#define CLANG_ATTRIBUTE(x) __attribute__((x))
-#define debugger_break() DOC("invoke debugger") asm("int3")
-#else
-#define CLANG_ATTRIBUTE(x)
-#define debugger_break() DOC("invoke debugger") __debugbreak()
-#endif
 #define global_variable DOC("mark global variables") static
 #define local_state DOC("mark locally persistent variables") static
 #define internal_symbol DOC("mark internal symbols") static
@@ -63,99 +34,17 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
 #define FixedArrayCount(array) (sizeof(array) / sizeof(*array))
 #define assert(__predicate_expr)                                               \
   if (!(__predicate_expr)) debugger_break()
-// (Word Types)
-using u8 = unsigned char;
-using u16 = unsigned short;
-using u32 = unsigned int;
-using s8 = signed char;
-using s16 = signed short;
-using s32 = signed int;
-using bool32 = u32;
-using float32 = float;
-using float64 = double;
-#if OS == OS_OSX && CPU == CPU_X86_64
-using u64 = unsigned long;
-using s64 = signed long;
-#elif OS == OS_WINDOWS && CPU == CPU_X86_64
-using u64 = unsigned long long;
-using s64 = signed long long;
-#else
-#error "define 64bit types"
-#endif
-static_assert(sizeof(u8) == 1, "u8");
-static_assert(sizeof(s8) == 1, "s8");
-static_assert(sizeof(u16) == 2, "u16");
-static_assert(sizeof(s16) == 2, "s16");
-static_assert(sizeof(u32) == 4, "u32");
-static_assert(sizeof(s32) == 4, "s32");
-static_assert(sizeof(u64) == 8, "u64");
-static_assert(sizeof(s64) == 8, "s64");
-static_assert(sizeof(float32) == 4, "float32");
-static_assert(sizeof(float64) == 8, "float64");
-// (SizeOf)
-#define SizeOf(x) sizeof(x)
-// (PointerOf)
-template <typename T> using PointerOf = T *;
-// (DistanceType)
-template <typename T> struct distance_type_impl {
-};
-template <typename T> struct distance_type_impl<PointerOf<T>> {
-  using type = u64;
-};
-template <typename T> using DistanceType = typename distance_type_impl<T>::type;
-// (Memory)
-using memory_address = PointerOf<u8>;
-using memory_size = DistanceType<memory_address>;
-static_assert(SizeOf(memory_address) == SizeOf(memory_size),
-              "memory_size incorrect for architecture");
-// (Os)
-internal_symbol void fatal() CLANG_ATTRIBUTE(noreturn)
-  DOC("kill the current process and return to the OS");
-internal_symbol memory_address vm_alloc(memory_size size)
-  DOC("allocate a memory block from the OS' virtual memory");
-internal_symbol void vm_free(memory_size size, memory_address data)
-  DOC("release a memory block from the OS");
-// die if bool is false
-#define fatal_ifnot(x)                                                         \
-  if (!(x)) {                                                                  \
-    debugger_break();                                                          \
-    fatal();                                                                   \
-  }
-#define fatal_if(x) fatal_ifnot(!(x))
-// (Concepts)
 #define MODELS(...)
 #define REQUIRES(...)
-#define IntegralConcept typename
-#define UnaryFunctionConcept typename
-#define BinaryFunctionConcept typename
-#define UnaryPredicateConcept typename
-// (OrdinateConcept)
-#define OrdinateConcept typename
-template <typename T> struct ordinate_concept {
-  using value_type = void;
-};
-template <typename T>
-using ValueType = typename ordinate_concept<T>::value_type;
-// (ReadableConcept)
-#define ReadableConcept typename
-template <typename T> struct readable_concept {
-  using readable_type = void;
-};
-template <typename T>
-using Readable = typename readable_concept<T>::readable_type;
-template <ReadableConcept RC, typename Check = Readable<RC>>
-Readable<RC> source(RC x);
-// (WritableConcept)
-#define WritableConcept typename
-template <typename T> struct writable_concept {
-  using writable_type = void;
-};
-template <typename T>
-using Writable = typename writable_concept<T>::writable_type;
-template <WritableConcept WC, typename Check = Writable<WC>>
-Writable<WC> sink(WC x);
+#include "machine_types.hpp"
+#include "errors.cpp"
+#include "integers.cpp"
+#include "arithmetics.cpp"
+#include "allocators.cpp"
+#include "algorithms.cpp"
+#include "pointers.cpp"
 // (Fixed Array Type)
-template <typename T, memory_size N> constexpr u64 container_size(T(&)[N])
+template <typename T, memory_size N> constexpr memory_size container_size(T(&)[N])
 {
   return N;
 }
@@ -184,444 +73,6 @@ template <typename T, memory_size N>
 constexpr u64 container_size(fixed_array_header<T, N> const &)
 {
   return N;
-}
-// (ContainerConcept)
-#define ContainerConcept typename
-template <typename T> struct container_concept {
-  using read_write_ordinate = void;
-};
-template <ContainerConcept C>
-using ReadWriteOrdinate = typename container_concept<C>::read_write_ordinate;
-// (CircularOrdinate)
-template <OrdinateConcept Ordinate> struct circular_ordinate {
-  Ordinate current;
-  Ordinate first;
-  Ordinate last;
-};
-template <OrdinateConcept Ordinate>
-circular_ordinate<Ordinate> predecessor(circular_ordinate<Ordinate> x)
-{
-  auto result = x;
-  if (result.current == x.first) {
-    result.current = x.last;
-  }
-  result.current = predecessor(result.current);
-  return result;
-}
-template <OrdinateConcept Ordinate>
-circular_ordinate<Ordinate> successor(circular_ordinate<Ordinate> x)
-{
-  auto result = x;
-  result.current = successor(x.current);
-  if (result.current == x.last) {
-    result.current = x.first;
-  }
-  return result;
-}
-template <OrdinateConcept Ordinate>
-struct writable_concept<circular_ordinate<Ordinate>> {
-  using writable_type = Writable<Ordinate>;
-};
-template <OrdinateConcept Ordinate>
-struct readable_concept<circular_ordinate<Ordinate>> {
-  using readable_type = Readable<Ordinate>;
-};
-template <OrdinateConcept Ordinate>
-REQUIRES(WritableConcept<Ordinate>)
-Writable<Ordinate> &sink(struct circular_ordinate<Ordinate> x)
-{
-  return sink(x.current);
-}
-template <OrdinateConcept Ordinate>
-REQUIRES(ReadableConcept<Ordinate>)
-Readable<Ordinate> const &source(struct circular_ordinate<Ordinate> x)
-{
-  return source(x.current);
-}
-template <OrdinateConcept Ordinate>
-circular_ordinate<Ordinate> make_circular_ordinate(Ordinate first,
-                                                   Ordinate last)
-{
-  return {first, first, last};
-}
-// (Modular Integers)
-#define Integer typename
-struct modular_integer_tag {
-};
-template <typename T> struct integer_concept {
-};
-template <typename T> constexpr T valid_max();
-#define DefineModularInteger(T, __upper_bound)                                 \
-  template <> struct integer_concept<T> {                                      \
-    using concept = modular_integer_tag;                                       \
-  };                                                                           \
-  template <> constexpr T valid_max<T>() { return __upper_bound; }
-DefineModularInteger(u8, u8(~0));
-DefineModularInteger(u16, u16(~0));
-DefineModularInteger(u32, u32(~0));
-DefineModularInteger(u64, u64(~0));
-DefineModularInteger(s8, s8(127));
-DefineModularInteger(s16, s16(32767));
-DefineModularInteger(s32, s32(2147483647));
-DefineModularInteger(s64, s64(9223372036854775807LL));
-template <typename T>
-using IntegerConcept = typename integer_concept<T>::concept;
-template <Integer I>
-bool addition_less(I x, I addand, I limit, modular_integer_tag)
-{
-  if (x >= limit) {
-    return false;
-  }
-  if (addand > 0) {
-    return limit - x > addand;
-  } else {
-    return true;
-  }
-}
-template <Integer I> bool addition_valid(I x, I addand, modular_integer_tag tag)
-{
-  if (x >= valid_max<I>()) {
-    return false;
-  }
-  return addition_less(x, addand, valid_max<I>(), tag);
-}
-template <Integer I> bool addition_less(I x, I addand, I limit)
-{
-  return addition_less(x, addand, limit, IntegerConcept<I>());
-}
-template <Integer I> bool addition_less_or_equal(I x, I addand, I limit)
-{
-  return addition_less(x, addand, limit) || ((x + addand) == limit);
-}
-template <Integer I> bool addition_valid(I x, I addand)
-{
-  return addition_valid(x, addand, IntegerConcept<I>());
-}
-// (Pointers)
-template <typename T> struct readable_concept<PointerOf<T>> {
-  using readable_type = T &; // at least readable, also writable
-};
-template <typename T> struct writable_concept<PointerOf<T>> {
-  using writable_type = T &;
-};
-template <typename T> Readable<PointerOf<T>> source(PointerOf<T> x)
-{
-  return *x;
-}
-template <typename T> Writable<PointerOf<T>> sink(PointerOf<T> x) { return *x; }
-template <typename T> struct ordinate_concept<PointerOf<T>> {
-  using value_type = T;
-};
-template <typename T> PointerOf<T> successor(PointerOf<T> x) { return x + 1; }
-template <typename T> PointerOf<T> predecessor(PointerOf<T> x) { return x - 1; }
-template <typename T> memory_address AddressOf(T &xref)
-{
-  return memory_address(&xref);
-}
-// (Algorithms)
-template <IntegralConcept I> bool zero(I x) { return x == I(0); }
-template <IntegralConcept I> I successor(I x) { return x + 1; }
-template <IntegralConcept I> I predecessor(I x) { return x - 1; }
-template <typename T> void swap(PointerOf<T> a, PointerOf<T> b)
-{
-  T temp = source(a);
-  sink(a) = source(b);
-  sink(b) = temp;
-}
-template <OrdinateConcept I, typename Check = Writable<I>>
-I set_step(I *pos_ptr, Writable<I> const &value)
-{
-  auto &pos = *pos_ptr;
-  auto const old_pos = pos;
-  sink(pos) = value;
-  pos = successor(pos);
-  return old_pos;
-}
-template <OrdinateConcept I, UnaryPredicateConcept P>
-REQUIRES(Domain(P) == ValueType(InputOrdinateConcept))
-I find_if(I first, I last, P pred)
-  DOC("in [`first`, `last`) find the first position where `pred` is true")
-{
-  while (first != last && !pred(source(first))) {
-    first = successor(first);
-  }
-  return first;
-}
-template <OrdinateConcept O, IntegralConcept I,
-          typename Check = IntegerConcept<I>>
-O fill_n(O first, I n, ValueType<O> x)
-{
-  while (!zero(n)) {
-    sink(first) = x;
-    first = successor(first);
-    n = predecessor(n);
-  }
-  return first;
-}
-template <OrdinateConcept InputOrdinateConcept, IntegralConcept I,
-          UnaryFunctionConcept Op, typename Check = IntegerConcept<I>>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
-InputOrdinateConcept for_each_n(InputOrdinateConcept first, I n, Op operation)
-  DOC("for `n` times, advance iterator `first` and apply `operation` on its "
-      "source")
-{
-  while (!zero(n)) {
-    operation(source(first));
-    first = successor(first);
-    n = predecessor(n);
-  }
-  return first;
-}
-template <OrdinateConcept InputOrdinateConcept, UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept))
-InputOrdinateConcept
-  for_each(InputOrdinateConcept first, InputOrdinateConcept last, Op operation)
-    DOC("for `n` times, advance iterator `first` and apply `operation` on its "
-        "source")
-{
-  while (first != last) {
-    operation(source(first));
-    first = successor(first);
-  }
-  return first;
-}
-template <OrdinateConcept InputOrdinateConcept, BinaryFunctionConcept P,
-          UnaryFunctionConcept Op>
-REQUIRES(Domain(Op) == ValueType(InputOrdinateConcept) &&
-         HomogeneousFunction(P, ValueType(InputOrdinateConcept)) &&
-         Domain(P) == ValueType(InputOrdinateConcept))
-InputOrdinateConcept
-  for_each_adjacent(InputOrdinateConcept first, InputOrdinateConcept last,
-                    P equal, Op operation)
-    DOC("in [`first`,`last`) advance iterator `first` and apply `operation` on "
-        "its "
-        "source as long as neighbours are equal according to `equal`")
-{
-  if (first != last) {
-    operation(source(first));
-    auto prev = first;
-    first = successor(first);
-    while (first != last && equal(source(prev), source(first))) {
-      operation(source(first));
-      prev = first;
-      first = successor(first);
-    }
-  }
-  return first;
-}
-template <OrdinateConcept I0, UnaryPredicateConcept OpPred>
-REQUIRES(Domain(Op) == ValueType(I0))
-I0 sequential_partition_nonstable(I0 first, I0 last, OpPred op_pred)
-  DOC("non stable partition of the elements in [first, last), "
-      "where `op_pred` returns true for elements that must be "
-      "moved forward. returns the partition point.")
-{
-  while (first != last) {
-    auto &element = source(first);
-    bool good_one = op_pred(element);
-    if (!good_one) {
-      auto &back_element = source(predecessor(last));
-      if (AddressOf(back_element) != AddressOf(element)) {
-        swap(&back_element, &element);
-      }
-      last = predecessor(last);
-    } else {
-      first = successor(first);
-    }
-  }
-  return last;
-}
-template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1,
-          IntegralConcept C1>
-REQUIRES(ValueType(I0) == ValueType(I1)) void copy_n_m(I0 from, C0 from_size,
-                                                       I1 to, C1 to_size)
-{
-  while (from_size > 0 && to_size > 0) {
-    sink(to) = source(from);
-    from = successor(from);
-    to = successor(to);
-    --from_size;
-    --to_size;
-  }
-}
-template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1>
-REQUIRES(ValueType(I0) == ValueType(I1))
-// TODO(nicolas): should actually return a pair
-I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
-{
-  while (from_size > 0 && to != to_last) {
-    sink(to) = source(from);
-    from = successor(from);
-    to = successor(to);
-    --from_size;
-  }
-  return to;
-}
-// (Numbers>
-#define NumberConcept typename
-template <NumberConcept N> struct number_concept {
-  /* static constexpr void min; */
-  /* static constexpr void max; */
-};
-template <typename T> using Number = number_concept<T>;
-template <> struct number_concept<float32> {
-  static constexpr float32 min = -2e38f;
-  static constexpr float32 max = +2e38f;
-};
-// (Arithmetics)
-template <typename T> T absolute_value(T x) { return x < T(0) ? -x : x; }
-template <typename T> bool finite(T x);
-template <typename T> bool operator<(T a, T b) { return natural_order(a, b); }
-template <typename T> bool operator==(T a, T b) { return equality(a, b); }
-template <typename T> bool operator!=(T a, T b) { return !(a == b); }
-template <typename T> T operator+(T a, T b) { return addition(a, b); }
-template <typename T> T min(T a, T b) { return a < b ? a : b; }
-template <typename T> T max(T a, T b) { return !(a < b) ? a : b; }
-template <typename N> N squared(N n) { return n * n; }
-template <typename T> T interpolate_linear(T a, T b, float64 a_b)
-{
-  return (1.0 - a_b) * a + a_b * b;
-}
-template <typename T> T lower_division(T x, T divisor)
-{
-  auto division = x / divisor;
-  T result;
-  if (division < 0) {
-    result = divisor * (-int(-division));
-  } else {
-    result = divisor * int(x / divisor);
-  }
-  return result;
-}
-template <typename T> T upper_division(T x, T divisor)
-{
-  return 1 + -lower_division(-x, divisor);
-}
-// (Memory Allocation)
-template <typename T, IntegralConcept I> struct counted_range {
-  T *first;
-  I count;
-};
-template <typename T, IntegralConcept I>
-struct container_concept<counted_range<T, I>> {
-  using read_write_ordinate = PointerOf<T>;
-};
-template <typename T, IntegralConcept I>
-u64 container_size(counted_range<T, I> x)
-{
-  return x.count;
-}
-template <typename T, IntegralConcept I>
-ReadWriteOrdinate<counted_range<T, I>> begin(counted_range<T, I> x)
-{
-  return x.first;
-}
-template <typename T, IntegralConcept I>
-ReadWriteOrdinate<counted_range<T, I>> end(counted_range<T, I> x)
-{
-  return begin(x) + x.count;
-}
-template <typename T, IntegralConcept I>
-ReadWriteOrdinate<counted_range<T, I>> at(counted_range<T, I> x, memory_size i)
-{
-  return &x.first[i];
-}
-template <typename T, IntegralConcept I>
-ReadWriteOrdinate<counted_range<T, I>>
-step_within(counted_range<T, I> x,
-            ReadWriteOrdinate<counted_range<T, I>> *position)
-{
-  auto &p = *position;
-  auto const previous = p;
-  fatal_if(p < 0);
-  if (I(p - x.first) < x.count) {
-    p = successor(p);
-  }
-  return previous;
-}
-template <typename T, IntegralConcept I>
-ReadWriteOrdinate<counted_range<T, I>>
-set_step_within(counted_range<T, I> x,
-                ReadWriteOrdinate<counted_range<T, I>> *position, T value)
-{
-  auto &p = *position;
-  auto const previous = p;
-  fatal_if(p < x.first);
-  if (p - x.first < x.count) {
-    sink(p) = value;
-    p = successor(p);
-  }
-  return previous;
-}
-template <typename Allocator, typename T>
-void alloc_array(PointerOf<Allocator> allocator, memory_size count,
-                 PointerOf<PointerOf<T>> dest_pointer_output)
-  DOC("allocate enough room for a contiguous array and copy it to "
-      "`dest_pointer_output`")
-{
-  sink(dest_pointer_output) =
-    reinterpret_cast<PointerOf<T>>(alloc(allocator, SizeOf(T) * count));
-}
-template <typename Allocator, typename T, IntegralConcept I>
-void alloc_array(PointerOf<Allocator> allocator, I count,
-                 counted_range<T, I> *dest)
-  DOC("allocate enough room for a contiguous array and copy it to "
-      "`dest`")
-{
-  alloc_array(allocator, count, &dest->first);
-  dest->count = count;
-}
-template <typename T, typename Allocator>
-PointerOf<T> object_alloc(PointerOf<Allocator> allocator)
-{
-  auto address = alloc(allocator, SizeOf(T));
-  return reinterpret_cast<PointerOf<T>>(address);
-}
-template <typename T>
-counted_range<T, memory_size> slice_memory(memory_address start,
-                                           memory_size size)
-{
-  // TODO(nicolas): alignment assertion
-  counted_range<T, memory_size> result;
-  result.first = reinterpret_cast<PointerOf<T>>(start);
-  result.count = size / SizeOf(T);
-  return result;
-}
-struct slab_allocator {
-  memory_address start;
-  memory_address unallocated_start;
-  memory_size size;
-};
-internal_symbol slab_allocator make_slab_allocator(memory_address start,
-                                                   memory_size size)
-{
-  slab_allocator result;
-  result.start = start;
-  result.unallocated_start = start;
-  result.size = size;
-  return result;
-}
-internal_symbol memory_address alloc(slab_allocator *slab_allocator,
-                                     memory_size size)
-{
-  // TODO(nicolas): alignment and zeroing
-  memory_size current_size =
-    memory_size(slab_allocator->unallocated_start - slab_allocator->start);
-  fatal_ifnot(addition_less_or_equal(current_size, size, slab_allocator->size));
-  memory_address block_start = slab_allocator->unallocated_start;
-  slab_allocator->unallocated_start += size;
-  return block_start;
-}
-internal_symbol memory_size allocatable_size(slab_allocator *slab_allocator)
-{
-  return memory_size(slab_allocator->start + slab_allocator->size -
-                     slab_allocator->unallocated_start);
-}
-internal_symbol void free(slab_allocator *slab_allocator, memory_address start,
-                          memory_size size)
-{
-  fatal_ifnot(start == slab_allocator->unallocated_start - size);
-  slab_allocator->unallocated_start = start;
 }
 // (DualShock4)
 enum DS4Constants {
@@ -663,79 +114,12 @@ struct DS4Out DOC("Output message for wired connection")
 };
 #pragma pack(pop)
 #include "hidapi/hidapi/hidapi.h"
-// (Cpu)
-internal_symbol inline float64 cpu_abs(float64 x);
-internal_symbol inline float64 cpu_sin(float64 x);
-internal_symbol inline float64 cpu_cos(float64 x);
-internal_symbol inline float64 cpu_sqrt(float64 x);
-internal_symbol inline bool cpu_finite(float64 x);
-template <> inline bool finite(float32 x) { return cpu_finite(x); }
-template <> inline bool finite(float64 x) { return cpu_finite(x); }
-template <> inline float32 absolute_value(float32 x)
-{
-  auto result = cpu_abs(x);
-  return result;
-}
-template <> inline float64 absolute_value(float64 x) { return cpu_abs(x); }
-// (Floats)
-bool valid(float32 x) { return finite(x); }
-// (Vector Math)
-struct vec3 MODELS(Regular) {
-  float32 x, y, z;
-};
-internal_symbol vec3 make_vec3(float32 v) { return {v, v, v}; }
-internal_symbol vec3 make_vec3(float32 x, float32 y) { return {x, y, 0.0}; }
-internal_symbol vec3 make_vec3(float32 x, float32 y, float32 z)
-{
-  return {x, y, z};
-}
-internal_symbol bool valid(vec3 x)
-{
-  return valid(x.x) && valid(x.y) && valid(x.z);
-}
-internal_symbol bool equality(vec3 a, vec3 b)
-{
-  return a.x == b.x && a.y == b.y && a.z == b.z;
-};
-internal_symbol bool default_order(vec3 a, vec3 b)
-{
-  return a.x < b.x ? true : a.y < b.y ? true : a.z < b.z;
-}
-internal_symbol vec3 addition(vec3 a, vec3 b)
-{
-  vec3 result;
-  result.x = a.x + b.x;
-  result.y = a.y + b.y;
-  result.z = a.z + b.z;
-  return result;
-}
-internal_symbol vec3 product(vec3 vector, float32 scalar)
-{
-  return vec3{vector.x * scalar, vector.y * scalar, vector.z * scalar};
-}
-internal_symbol vec3 hadamard_product(vec3 a, vec3 b)
-{
-  return vec3{a.x * b.x, a.y * b.y, a.z * b.z};
-}
-internal_symbol vec3 cross_product(vec3 a, vec3 b)
-{
-  return vec3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
-              a.x * b.y - a.y * b.z};
-}
-internal_symbol float32 squared_euclidean_norm(vec3 v)
-{
-  float32 xx = v.x * v.x;
-  float32 yy = v.y * v.y;
-  float32 zz = v.z * v.z;
-  return xx + yy + zz;
-}
-internal_symbol float32 euclidean_norm(vec3 v)
+#ifndef UU_VEC3
+#include "vec3.cpp"
+#endif
+UU_VEC3_API float euclidean_norm(vec3 v)
 {
   return cpu_sqrt(squared_euclidean_norm(v));
-}
-internal_symbol float32 squared_euclidean_distance(vec3 a, vec3 b)
-{
-  return squared_euclidean_norm(addition(b, product(a, -1)));
 }
 internal_symbol vec3 operator*(vec3 vector, float32 scalar)
 {
@@ -749,123 +133,17 @@ internal_symbol vec3 operator-(vec3 a, vec3 b)
 {
   return addition(a, vec3{-b.x, -b.y, -b.z});
 }
-// (Bounding Box)
-struct aabb2 MODELS(SemiRegular) {
-  float32 min_x;
-  float32 max_x;
-  float32 min_y;
-  float32 max_y;
-};
-aabb2 zero_aabb2()
-{
-  aabb2 result;
-  result.min_x = result.min_y = Number<float32>::max;
-  result.max_x = result.max_y = Number<float32>::min;
-  return result;
-}
-aabb2 cover(aabb2 bounding_box, float32 point_x, float32 point_y)
-{
-  // TODO(nicolas): extract min and max in one step
-  bounding_box.min_x = min(bounding_box.min_x, point_x);
-  bounding_box.max_x = max(bounding_box.max_x, point_x);
-  bounding_box.min_y = min(bounding_box.min_y, point_y);
-  bounding_box.max_y = max(bounding_box.max_y, point_y);
-  return bounding_box;
-}
-bool intersects(aabb2 a, aabb2 b)
-{
-  if (a.max_x < b.min_x || a.min_x > b.max_x) return false;
-  if (a.max_y < b.min_y || a.min_y > b.max_y) return false;
-  return true;
-}
-aabb2 translate(aabb2 bounding_box, float32 delta_x, float32 delta_y)
-{
-  bounding_box.min_x += delta_x;
-  bounding_box.max_x += delta_x;
-  bounding_box.min_y += delta_y;
-  bounding_box.max_y += delta_y;
-  return bounding_box;
-}
-aabb2 scale_around_center(aabb2 bounding_box, float32 scaling)
-{
-  float32 center_x = 0.5 * (bounding_box.min_x + bounding_box.max_x);
-  float32 center_y = 0.5 * (bounding_box.min_y + bounding_box.max_y);
-  float32 new_width = scaling * (bounding_box.max_x - bounding_box.min_x);
-  float32 new_height = scaling * (bounding_box.max_y - bounding_box.min_y);
-  aabb2 result;
-  result.min_x = center_x - 0.5 * new_width;
-  result.max_x = result.min_x + new_width;
-  result.min_y = center_y - 0.5 * new_height;
-  result.max_y = result.min_y + new_height;
-  return result;
-}
-aabb2 make_symmetric(aabb2 bb)
-{
-  aabb2 result;
-  auto x = max(absolute_value(bb.min_x), absolute_value(bb.max_x));
-  auto y = max(absolute_value(bb.min_y), absolute_value(bb.max_y));
-  result.min_x = -x;
-  result.max_x = x;
-  result.min_y = -y;
-  result.max_y = y;
-  return result;
-}
-bool contains(aabb2 bb, float32 x, float32 y)
-{
-  if (x < bb.min_x || x > bb.max_x) return false;
-  if (y < bb.min_y || y > bb.max_y) return false;
-  return true;
-}
-// (Multi-Dimensional Arrays)
-// PERSON(Pramod Gupta)
-// URL(https://www.youtube.com/watch?v=CPPX4kwqh80)
-// URL(https://github.com/astrobiology/orca_array)
-template <typename T, typename I> struct array2_header MODELS(container) {
-  T *memory;
-  I memory_size;
-  I d0_count;
-  I d1_count;
-};
-template <typename T, IntegralConcept I>
-struct container_concept<array2_header<T, I>> {
-  using read_write_ordinate = PointerOf<T>;
-};
-template <typename T, typename I>
-array2_header<T, I> make_array2(T *memory, I memory_size, I d0, I d1)
-{
-  fatal_ifnot(d0 * d1 <= memory_size);
-  return {memory, memory_size, d0, d1};
-}
-template <typename T, typename I>
-PointerOf<T> at(array2_header<T, I> const &array, I x0, I x1)
-{
-#if defined(NEIGE_SLOW)
-  fatal_ifnot(x0 < array.d0_count);
-  fatal_ifnot(x1 < array.d1_count);
-#endif
-  I offset = x1 * array.d0_count + x0;
-  fatal_ifnot(offset < array.memory_size);
-  return &array.memory[offset];
-}
-template <typename T, typename I>
-PointerOf<T> begin(array2_header<T, I> const &x)
-{
-  return x.memory;
-}
-template <typename T, typename I>
-memory_size container_size(array2_header<T, I> const &x)
-{
-  return x.d0_count * x.d1_count;
-}
 // (Main)
 #include "nanovg/src/nanovg.h"
 #include "neige_random.hpp"
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
-struct TransientMemory;
-internal_symbol void vine_effect(TransientMemory& transient_memory, Display const &display, bool paused)
-  TAG("visuals");
+struct slab_allocator;
+namespace uu_vine_growing
+{
+static void vine_effect(slab_allocator* persistent_memory_, slab_allocator* frame_allocator_, float32 framebuffer_width_px, float32 framebuffer_height_px, NVGcontext* nvg);
+}
 global_variable hid_device *global_optional_ds4;
 internal_symbol NVGcontext *nvg_create_context();
 internal_symbol void forget_ds4() { global_optional_ds4 = nullptr; }
@@ -1032,40 +310,10 @@ void render_next_gl3(unsigned long long micros, Display display)
     }
     last_micros = micros;
   }
-  DOC("main effect") { vine_effect(transient_memory, display, paused); }
+  local_state auto nvg = nvg_create_context();
+  glClear(GL_STENCIL_BUFFER_BIT);
+  DOC("main effect") { uu_vine_growing::vine_effect(&transient_memory.frame_allocator, &main_memory.allocator, display.framebuffer_width_px, display.framebuffer_height_px, nvg); }
   transient_memory.frame_allocator = saved_frame_allocator;
-}
-internal_symbol void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
-{
-  nvgBeginPath(vg);
-  nvgMoveTo(vg, bounding_box.min_x, bounding_box.min_y);
-  nvgLineTo(vg, bounding_box.max_x, bounding_box.min_y);
-  nvgLineTo(vg, bounding_box.max_x, bounding_box.max_y);
-  nvgLineTo(vg, bounding_box.min_x, bounding_box.max_y);
-  nvgLineTo(vg, bounding_box.min_x, bounding_box.min_y);
-  nvgStroke(vg);
-}
-internal_symbol float32 perlin_noise2(float32 period, float32 x, float32 y);
-struct grid2 {
-  aabb2 bounding_box;
-  float32 step;
-};
-internal_symbol grid2 make_grid2(aabb2 approximate_bounding_box,
-                                 float32 target_step, u32 max_step_count)
-{
-  auto const &ibb = approximate_bounding_box;
-  // ensure grids don't get too dense
-  float32 step = target_step;
-  while ((ibb.max_y - ibb.min_y) > step * max_step_count) {
-    step *= 2;
-  }
-  grid2 result;
-  result.bounding_box.min_x = lower_division(ibb.min_x, step);
-  result.bounding_box.max_x = upper_division(ibb.max_x, step);
-  result.bounding_box.min_y = lower_division(ibb.min_y, step);
-  result.bounding_box.max_y = upper_division(ibb.max_y, step);
-  result.step = step;
-  return result;
 }
 #include "vine_effect.cpp"
 struct music_event {
@@ -1248,7 +496,7 @@ int main(int argc, char **argv) DOC("application entry point")
   UNUSED_PARAMETER(argc);
   UNUSED_PARAMETER(argv);
   auto all_memory_size = memory_size(1024 * 1024 * 1024);
-  auto all_memory = vm_alloc(all_memory_size);
+  auto all_memory = os_vm_alloc(all_memory_size);
   auto all_allocator = make_slab_allocator(all_memory, all_memory_size);
   auto transient_memory_size = memory_size(64 * 1024 * 1024);
   transient_memory.allocator = make_slab_allocator(
@@ -1385,121 +633,9 @@ int main(int argc, char **argv) DOC("application entry point")
   query_ds4(0);
   runtime_init();
   hid_exit();
-  vm_free(all_memory_size, all_memory);
+  os_vm_free(all_memory_size, all_memory);
 }
 // (CPU)
-#if defined(COMPILER_CLANG) && (CPU == CPU_IA32 || CPU == CPU_X86_64)
-internal_symbol u8 bit_scan_reverse32(u32 x)
-{
-  u32 y;
-  asm("bsrl %1,%0" : "=r"(y) : "r"(x));
-  return y;
-}
-internal_symbol float64 cpu_abs(float64 x)
-{
-  float64 y;
-  asm("fabs" : "=t"(y) : "0"(x));
-  return y;
-}
-internal_symbol float64 cpu_sin(float64 x)
-{
-  float64 y;
-  asm("fsin" : "=t"(y) : "0"(x));
-  return y;
-}
-internal_symbol float64 cpu_cos(float64 x)
-{
-  float64 y;
-  asm("fcos" : "=t"(y) : "0"(x));
-  return y;
-}
-internal_symbol bool cpu_finite(float64 x)
-{
-  register u16 y asm("eax") = 0x88;
-  asm("fxam\n"
-      "fstsw %0"
-      : "=r"(y)
-      : "f"(x));
-  union x87_status_register {
-    u16 value;
-    struct {
-      u16 ignored : 8;
-      u16 C0 : 1;
-      u16 C1 : 1;
-      u16 C2 : 1;
-      u16 TOP : 3;
-      u16 C3 : 1;
-    };
-  };
-  x87_status_register yy;
-  yy.value = y;
-  u16 triple = (yy.C3 << 2) | (yy.C2 << 1) | (yy.C0);
-  return triple == 2 || triple == 4 || triple == 6;
-}
-internal_symbol float64 cpu_sqrt(float64 x)
-{
-  float64 y;
-  asm("fsqrt" : "=t"(y) : "0"(x));
-  return y;
-}
-#elif defined(COMPILER_MSC) && (CPU == CPU_IA32 || CPU == CPU_X86_64)
-#include <intrin.h>
-#include <float.h>
-#include <math.h>
-/* see documentation:
- * URL(https://msdn.microsoft.com/en-us/library/hh977023.aspx) */
-internal_symbol u8 bit_scan_reverse32(u32 x)
-{
-  unsigned long index;
-  unsigned long mask = x;
-  _BitScanReverse(&index, mask);
-  return index;
-}
-internal_symbol inline float64 cpu_abs(float64 x) { return fabs(x); }
-internal_symbol inline float64 cpu_sin(float64 x) { return sin(x); }
-internal_symbol inline float64 cpu_cos(float64 x) { return cos(x); }
-internal_symbol bool cpu_finite(float64 x) { return _finite(x); }
-internal_symbol float64 cpu_sqrt(float64 x) { return sqrtf(x); }
-#endif
-// (Os)
-#if OS == OS_OSX
-#include <mach/mach.h> // for vm_allocate
-#include <unistd.h>    // for _exit
-internal_symbol void fatal() { _exit(-3); }
-internal_symbol memory_address vm_alloc(memory_size size)
-{
-  fatal_ifnot(size > 0);
-  vm_address_t address = 0;
-  auto vm_allocate_result = vm_allocate(mach_task_self(), &address, size, true);
-  fatal_ifnot(KERN_SUCCESS == vm_allocate_result);
-  return memory_address(address);
-}
-internal_symbol void vm_free(memory_size size, memory_address address)
-{
-  auto vm_deallocate_result =
-    vm_deallocate(mach_task_self(), vm_address_t(address), size);
-  fatal_ifnot(KERN_SUCCESS == vm_deallocate_result);
-}
-#elif OS == OS_WINDOWS
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-internal_symbol void fatal() { ExitProcess(3); }
-internal_symbol memory_address vm_alloc(memory_size size)
-{
-  LPVOID address = 0;
-  DWORD flAllocationType = MEM_COMMIT | MEM_RESERVE;
-  DWORD flProtect = PAGE_READWRITE;
-  return memory_address(
-    VirtualAlloc(address, size, flAllocationType, flProtect));
-}
-internal_symbol void vm_free(memory_size size, memory_address data)
-{
-  VirtualFree(data, size, MEM_RELEASE);
-}
-#else
-#error "Unimplemented OS module"
-#endif
 // (Micros)
 #if OS == OS_OSX
 #pragma clang diagnostic push
@@ -1536,14 +672,3 @@ internal_symbol NVGcontext *nvg_create_context()
 #if defined(STATIC_GLEW)
 #include "uu.micros/libs/glew/src/glew.c"
 #endif
-// (stb_perlin)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wsign-conversion"
-#define STB_PERLIN_IMPLEMENTATION
-#include "uu.ticks/modules/stb/stb_perlin.h"
-#pragma clang diagnostic pop
-internal_symbol float32 perlin_noise2(float32 period, float32 x, float32 y)
-{
-  auto result = stb_perlin_noise3(x / period, y / period, 0.0f, 256, 256, 256);
-  return result;
-}
