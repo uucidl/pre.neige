@@ -4,6 +4,8 @@
 #define UnaryFunctionConcept typename
 #define BinaryFunctionConcept typename
 #define UnaryPredicateConcept typename
+namespace uu
+{
 // (Distance)
 template <typename T> struct distance_type_impl {
 };
@@ -40,3 +42,4 @@ template <typename T> struct container_concept {
 };
 template <ContainerConcept C>
 using ReadWriteOrdinate = typename container_concept<C>::read_write_ordinate;
+} // namespace uu

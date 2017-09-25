@@ -33,28 +33,32 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
 // NOTE(uucidl): TAG(unsafe), use fixed size array type instead whenever
 #define FixedArrayCount(array) (sizeof(array) / sizeof(*array))
 #define assert(__predicate_expr)                                               \
-  if (!(__predicate_expr)) debugger_break()
+  if (!(__predicate_expr)) uu_debugger_break()
 #define MODELS(...)
 #define REQUIRES(...)
-#include "machine_types.hpp"
-#include "errors.cpp"
 #include "integers.cpp"
+#include "floats.cpp"
 #include "arithmetics.cpp"
-#include "allocators.cpp"
-#include "algorithms.cpp"
+#include "machine_types.hpp"
 #include "pointers.cpp"
+#include "algorithms.cpp"
+#include "allocators.cpp"
+#include "errors.cpp"
+namespace uu
+{
 // (Fixed Array Type)
-template <typename T, memory_size N> constexpr memory_size container_size(T(&)[N])
+template <typename T, memory_size N>
+constexpr memory_size container_size(T (&)[N])
 {
   return N;
 }
 template <typename T, memory_size N> struct fixed_array_header {
-  T(&array)[N];
-  fixed_array_header(T(&init_array)[N]) : array(init_array) {}
+  T (&array)[N];
+  fixed_array_header(T (&init_array)[N]) : array(init_array) {}
   T &operator[](memory_size i) { return array[i]; }
 };
 template <typename T, memory_size N>
-fixed_array_header<T, N> make_fixed_array_header(T(&array)[N])
+fixed_array_header<T, N> make_fixed_array_header(T (&array)[N])
 {
   fixed_array_header<T, N> header = {array};
   return header;
@@ -74,7 +78,10 @@ constexpr u64 container_size(fixed_array_header<T, N> const &)
 {
   return N;
 }
+} // namespace uu
 // (DualShock4)
+namespace uu
+{
 enum DS4Constants {
   DS4Constants_MAGIC = 0x0004ff05,
   DS4Constants_VendorId = 0x54c,
@@ -113,10 +120,13 @@ struct DS4Out DOC("Output message for wired connection")
   u8 pad[32 - 11];
 };
 #pragma pack(pop)
+} // namespace uu
 #include "hidapi/hidapi/hidapi.h"
 #ifndef UU_VEC3
 #include "vec3.cpp"
 #endif
+namespace uu
+{
 UU_VEC3_API float euclidean_norm(vec3 v)
 {
   return cpu_sqrt(squared_euclidean_norm(v));
@@ -133,17 +143,26 @@ internal_symbol vec3 operator-(vec3 a, vec3 b)
 {
   return addition(a, vec3{-b.x, -b.y, -b.z});
 }
+} // namespace uu
 // (Main)
 #include "nanovg/src/nanovg.h"
 #include "neige_random.hpp"
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
+namespace uu
+{
 struct slab_allocator;
+} // namespace uu
 namespace uu_vine_growing
 {
-static void vine_effect(slab_allocator* persistent_memory_, slab_allocator* frame_allocator_, float32 framebuffer_width_px, float32 framebuffer_height_px, NVGcontext* nvg);
+static void vine_effect(uu::slab_allocator *persistent_memory_,
+                        uu::slab_allocator *frame_allocator_,
+                        uu::float32 framebuffer_width_px,
+                        uu::float32 framebuffer_height_px, NVGcontext *nvg);
 }
+namespace uu
+{
 global_variable hid_device *global_optional_ds4;
 internal_symbol NVGcontext *nvg_create_context();
 internal_symbol void forget_ds4() { global_optional_ds4 = nullptr; }
@@ -160,11 +179,11 @@ internal_symbol hid_device *query_ds4(u64 micros)
       DS4Out ds4_init = {DS4Constants_MAGIC, 0, 0, 25, 175, 15, 0, 0, {}};
       auto hidapi_result =
         hid_write(global_optional_ds4, AddressOf(ds4_init), SizeOf(ds4_init));
-      fatal_ifnot(hidapi_result == SizeOf(ds4_init));
+      uu_fatal_ifnot(hidapi_result == SizeOf(ds4_init));
       DS4 ds4;
       hidapi_result =
         hid_read(global_optional_ds4, AddressOf(ds4), SizeOf(ds4));
-      fatal_ifnot(hidapi_result == SizeOf(ds4));
+      uu_fatal_ifnot(hidapi_result == SizeOf(ds4));
     }
   }
   return global_optional_ds4;
@@ -197,6 +216,9 @@ struct polyphony_header {
   polyphonic_voice_header voices[8];
 };
 global_variable polyphony_header global_polyphony = {0x08, {}};
+} // namespace uu
+namespace uu
+{
 struct MainMemory {
   slab_allocator allocator;
 };
@@ -204,11 +226,13 @@ struct TransientMemory {
   slab_allocator allocator;
   slab_allocator frame_allocator;
 };
-global_variable struct TransientMemory transient_memory;
-global_variable struct MainMemory main_memory;
+}
+global_variable struct uu::TransientMemory transient_memory;
+global_variable struct uu::MainMemory main_memory;
 #include <stdio.h> // for snprintf
 void render_next_gl3(unsigned long long micros, Display display)
 {
+  using namespace uu;
   auto saved_frame_allocator = transient_memory.frame_allocator;
   // NOTE(nicolas): we implement the main program logic as well as its rendering
   // here.
@@ -284,7 +308,8 @@ void render_next_gl3(unsigned long long micros, Display display)
                         display.framebuffer_height_px);
     }
     char free_voices[] = "XXXXXXXX";
-    for (memory_size index = 0; index < SizeOf(free_voices) - 1; ++index) {
+    for (memory_size index = 0; index < container_size(free_voices) - 1;
+         ++index) {
       bool is_free = global_polyphony.free_voices & (1 << index);
       free_voices[index] = is_free ? 'X' : 'O';
     }
@@ -312,10 +337,17 @@ void render_next_gl3(unsigned long long micros, Display display)
   }
   local_state auto nvg = nvg_create_context();
   glClear(GL_STENCIL_BUFFER_BIT);
-  DOC("main effect") { uu_vine_growing::vine_effect(&transient_memory.frame_allocator, &main_memory.allocator, display.framebuffer_width_px, display.framebuffer_height_px, nvg); }
+  DOC("main effect")
+  {
+    uu_vine_growing::vine_effect(
+      &transient_memory.frame_allocator, &main_memory.allocator,
+      display.framebuffer_width_px, display.framebuffer_height_px, nvg);
+  }
   transient_memory.frame_allocator = saved_frame_allocator;
 }
 #include "vine_effect.cpp"
+namespace uu
+{
 struct music_event {
   u32 step;
   s8 note_semitones;
@@ -338,19 +370,23 @@ internal_symbol music_header alloc_music_header(slab_allocator *allocator,
 internal_symbol void push_music_event(music_header *music_header, u32 step,
                                       s8 semitones)
 {
-  fatal_ifnot(addition_less(container_size(music_header->events),
-                            memory_size(1),
-                            container_size(music_header->events_storage)));
+  uu_fatal_ifnot(addition_less(container_size(music_header->events),
+                               memory_size(1),
+                               container_size(music_header->events_storage)));
   auto event = at(music_header->events, container_size(music_header->events));
   ++music_header->events.count;
   event->step = step;
   event->note_semitones = semitones;
 }
-global_variable audio_sample_header global_audio_samples[1];
-global_variable u8 global_audio_sample_index = 0;
-global_variable music_header global_music;
-global_variable u8 global_music_index = 0;
-internal_symbol audio_sample_header get_audio_sample()
+} // namespace uu
+global_variable uu::audio_sample_header global_audio_samples[1];
+global_variable uu::u8 global_audio_sample_index = 0;
+global_variable uu::music_header global_music;
+global_variable uu::u8 global_music_index = 0;
+extern "C" double pow(double m, double e); // TODO(uucidl): replace libc pow
+namespace uu
+{
+internal_symbol uu::audio_sample_header get_audio_sample()
 {
   return global_audio_samples[global_audio_sample_index];
 }
@@ -390,7 +426,6 @@ internal_symbol u8 bit_scan_reverse32(u32 x);
 static_assert(FixedArrayCount(polyphony_header::voices) >=
                 8 * SizeOf(polyphony_header::free_voices),
               "too small bitflag");
-extern "C" double pow(double m, double e); // TODO(uucidl): replace libc pow
 internal_symbol s8 major_scale_semitones(s8 major_scale_offset)
 {
   u8 scale[] = {
@@ -419,10 +454,12 @@ internal_symbol float64 major_scale_freq_hz(float64 root_freq_hz,
   float64 freq_hz = semitones_freq_hz(root_freq_hz, note_semitones);
   return freq_hz;
 }
+} // namespace uu
 void render_next_2chn_48khz_audio(unsigned long long now_micros,
                                   int sample_count_init, double *left,
                                   double *right)
 {
+  using namespace uu;
   u32 sample_count = u32(sample_count_init);
   for_each_n(left, sample_count, [](double &sample) { sample = 0.0; });
   for_each_n(right, sample_count, [](double &sample) { sample = 0.0; });
@@ -468,6 +505,8 @@ void render_next_2chn_48khz_audio(unsigned long long now_micros,
     }
   }
 }
+namespace uu
+{
 internal_symbol audio_sample_header make_audio_sample(
   slab_allocator *slab_allocator, u32 sample_count, float64 data_rate_hz)
 {
@@ -478,6 +517,9 @@ internal_symbol audio_sample_header make_audio_sample(
   alloc_array(slab_allocator, sample_count, &header.data);
   return header;
 }
+}
+namespace uu
+{
 URL("http://www.intel.com/content/www/us/en/processors/"
     "architectures-software-developer-manuals.html")
 internal_symbol void fill_sample_with_sin(audio_sample_header sample,
@@ -491,8 +533,10 @@ internal_symbol void fill_sample_with_sin(audio_sample_header sample,
     phase = phase + phase_increment;
   });
 }
+}
 int main(int argc, char **argv) DOC("application entry point")
 {
+  using namespace uu;
   UNUSED_PARAMETER(argc);
   UNUSED_PARAMETER(argv);
   auto all_memory_size = memory_size(1024 * 1024 * 1024);
@@ -662,12 +706,15 @@ int main(int argc, char **argv) DOC("application entry point")
 #include "nanovg/src/nanovg.c"
 #include "nanovg/src/nanovg.h"
 #include "nanovg/src/nanovg_gl.h"
+namespace uu
+{
 internal_symbol NVGcontext *nvg_create_context()
 {
   u32 flags = NVG_ANTIALIAS | NVG_STENCIL_STROKES;
   flags |= NVG_DEBUG;
   return nvgCreateGL3(flags);
 }
+} // namespace uu
 #pragma clang diagnostic pop
 #if defined(STATIC_GLEW)
 #include "uu.micros/libs/glew/src/glew.c"

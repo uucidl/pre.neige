@@ -18,6 +18,8 @@
 #ifndef MODELS
 #define MODELS(...)
 #endif
+namespace uu
+{
 // (Bounding Box)
 struct aabb2 MODELS(SemiRegular) {
   float32 min_x;
@@ -34,10 +36,14 @@ UU_AABB2_API aabb2 zero_aabb2()
 }
 UU_AABB2_API aabb2 cover(aabb2 bounding_box, float32 point_x, float32 point_y)
 {
-  bounding_box.min_x = point_x < bounding_box.min_x? point_x : bounding_box.min_x;
-  bounding_box.max_x = bounding_box.max_x < point_x? point_x : bounding_box.max_x;
-  bounding_box.min_y = point_y < bounding_box.min_y? point_y : bounding_box.min_y;
-  bounding_box.max_y = bounding_box.max_y < point_y? point_y : bounding_box.max_y;
+  bounding_box.min_x =
+    point_x < bounding_box.min_x ? point_x : bounding_box.min_x;
+  bounding_box.max_x =
+    bounding_box.max_x < point_x ? point_x : bounding_box.max_x;
+  bounding_box.min_y =
+    point_y < bounding_box.min_y ? point_y : bounding_box.min_y;
+  bounding_box.max_y =
+    bounding_box.max_y < point_y ? point_y : bounding_box.max_y;
   return bounding_box;
 }
 UU_AABB2_API bool intersects(aabb2 a, aabb2 b)
@@ -46,7 +52,8 @@ UU_AABB2_API bool intersects(aabb2 a, aabb2 b)
   if (a.max_y < b.min_y || a.min_y > b.max_y) return false;
   return true;
 }
-UU_AABB2_API aabb2 translate(aabb2 bounding_box, float32 delta_x, float32 delta_y)
+UU_AABB2_API aabb2 translate(aabb2 bounding_box, float32 delta_x,
+                             float32 delta_y)
 {
   bounding_box.min_x += delta_x;
   bounding_box.max_x += delta_x;
@@ -74,8 +81,8 @@ UU_AABB2_API aabb2 make_symmetric(aabb2 bb)
   auto const aMx = absolute_value(bb.max_x);
   auto const amy = absolute_value(bb.min_y);
   auto const aMy = absolute_value(bb.max_y);
-  auto x = amx>aMx? amx:aMx;
-  auto y = amy>aMy? amy:aMy;
+  auto x = amx > aMx ? amx : aMx;
+  auto y = amy > aMy ? amy : aMy;
   result.min_x = -x;
   result.max_x = x;
   result.min_y = -y;
@@ -88,3 +95,4 @@ UU_AABB2_API bool contains(aabb2 bb, float32 x, float32 y)
   if (y < bb.min_y || y > bb.max_y) return false;
   return true;
 }
+} // namespace uu

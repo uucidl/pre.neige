@@ -48,6 +48,7 @@
 #include "nanovg/src/nanovg.h"
 namespace uu_vine_growing
 {
+using namespace uu;
 enum { NULL_STEM_ID = 0 };
 enum { TICKS_PER_SECOND = 60 };
 struct stem {
@@ -78,8 +79,8 @@ struct grid2 {
   aabb2 bounding_box;
   float32 step;
 };
-static grid2 make_grid2(aabb2 approximate_bounding_box,
-                                 float32 target_step, u32 max_step_count)
+static grid2 make_grid2(aabb2 approximate_bounding_box, float32 target_step,
+                        u32 max_step_count)
 {
   auto const &ibb = approximate_bounding_box;
   // ensure grids don't get too dense
@@ -105,11 +106,11 @@ static void draw_bounding_box(NVGcontext *vg, aabb2 const bounding_box)
   nvgLineTo(vg, bounding_box.min_x, bounding_box.min_y);
   nvgStroke(vg);
 }
-UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
-                                    slab_allocator* frame_allocator_,
-                                 float32 framebuffer_width_px, float32 framebuffer_height_px,
-                                 NVGcontext* nvg)
-  TAG("visuals") DOC("growing a plant like organism")
+UU_VINE_GROWING_API void
+vine_effect(slab_allocator *persistent_memory_,
+            slab_allocator *frame_allocator_, float32 framebuffer_width_px,
+            float32 framebuffer_height_px, NVGcontext *nvg) TAG("visuals")
+  DOC("growing a plant like organism")
 {
   auto &persistent_memory = *persistent_memory_;
   auto &frame_allocator = *frame_allocator_;
@@ -150,7 +151,7 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
                            float32 bifurcation_threshold,
                            u32 generation_count) {
     auto &y = sink(dest);
-    fatal_if(y.stem_id == NULL_STEM_ID);
+    uu_fatal_if(y.stem_id == NULL_STEM_ID);
     y.start = start;
     y.end = start;
     y.d_end_dt = growth_cm_per_tick;
@@ -177,8 +178,8 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
   };
   counted_range<stem, u32> created_stems;
   enum { MAX_STEMS_CREATED_PER_FRAME = 16 };
-  alloc_array(&frame_allocator,
-              u32(MAX_STEMS_CREATED_PER_FRAME), &created_stems);
+  alloc_array(&frame_allocator, u32(MAX_STEMS_CREATED_PER_FRAME),
+              &created_stems);
   stem *last_created_stem = begin(created_stems);
   auto allocate_vine =
     [&](slab_allocator *allocator, memory_size max_stem_count, vec3 start,
@@ -206,9 +207,9 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
     make_vec3(float32(4.0 / TICKS_PER_SECOND), float32(7.0 / TICKS_PER_SECOND)),
     float32(0.3), memory_size(30 * TICKS_PER_SECOND));
   local_storage vec3 camera_center = {};
-  local_storage vec3 camera_halfsize =
-    product(vec3{float32(framebuffer_width_px),
-         float32(framebuffer_height_px), 0.0f}, 20.0 / framebuffer_width_px);
+  local_storage vec3 camera_halfsize = product(
+    vec3{float32(framebuffer_width_px), float32(framebuffer_height_px), 0.0f},
+    20.0 / framebuffer_width_px);
   aabb2 camera_bb = zero_aabb2();
   aabb2 eviction_bb = zero_aabb2();
   aabb2 active_points_bounding_box = zero_aabb2();
@@ -242,7 +243,8 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
     };
     auto twirl_force = [&](stem &stem) {
       auto growth = stem.d_end_dt;
-      auto const initial_growth_magnitude_squared = squared_euclidean_norm(growth);
+      auto const initial_growth_magnitude_squared =
+        squared_euclidean_norm(growth);
       if (initial_growth_magnitude_squared > 0.0) {
         float32 const mag = 0.00071 * (stem.bifurcation_bit ? 1 : -1);
         auto const twirl_threshold = 0.62 * stem.bifurcation_threshold;
@@ -250,8 +252,8 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
           stem.bifurcation_threshold - twirl_threshold;
         if (stem.generation_count >= 0 && twirl_distance > 0.01 &&
             stem.energy_spent >= twirl_threshold) {
-          stem.twirl =
-            10 * mag * min(1.0, squared(stem.energy_spent - twirl_threshold) /
+          stem.twirl = 10 * mag *
+                       min(1.0, squared(stem.energy_spent - twirl_threshold) /
                                   squared(twirl_distance));
         } else {
           stem.twirl = 0.0;
@@ -259,22 +261,26 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
         {
           // TODO(nicolas): dimensional analysis results in something weird:
           vec3 instant_velocity = product(stem.d_end_dt, TICKS_PER_SECOND);
-          float32 norm = cpu_sqrt(1.0 / squared_euclidean_norm(instant_velocity));
+          float32 norm =
+            cpu_sqrt(1.0 / squared_euclidean_norm(instant_velocity));
           vec3 magnetic_pole = product(make_vec3(0.0, 0.0, -1.0), mag);
           vec3 magnetic_force =
             product(cross_product(instant_velocity, magnetic_pole), norm);
           vec3 magnetic_pole1 = product(make_vec3(0.0, 0.0, 1.0), stem.twirl);
           vec3 magnetic_force1 =
             product(cross_product(instant_velocity, magnetic_pole1), norm);
-          growth = addition(growth, product(addition(magnetic_force, magnetic_force1), 0.5));
+          growth = addition(
+            growth, product(addition(magnetic_force, magnetic_force1), 0.5));
         }
         stem.d_end_dt =
-          product(growth, cpu_sqrt(initial_growth_magnitude_squared / squared_euclidean_norm(growth)));
+          product(growth, cpu_sqrt(initial_growth_magnitude_squared /
+                                   squared_euclidean_norm(growth)));
       }
     };
     auto tally_energy_spent = [&](stem &stem) {
       float32 growth_cost_j_per_cm = 0.09;
-      auto growth_cost_j = growth_cost_j_per_cm * cpu_sqrt(squared_euclidean_norm(stem.d_end_dt));
+      auto growth_cost_j =
+        growth_cost_j_per_cm * cpu_sqrt(squared_euclidean_norm(stem.d_end_dt));
       stem.energy_spent = stem.energy_spent + growth_cost_j;
       stem.life -= growth_cost_j;
     };
@@ -285,9 +291,9 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
     };
     auto bifurcate = [&](stem &stem) {
       auto bifurcate_decision_cost_j = 0.071;
-      auto new_energy_spent =
-        stem.bifurcation_energy_spent +
-        bifurcate_decision_cost_j * cpu_sqrt(squared_euclidean_norm(stem.d_end_dt));
+      auto new_energy_spent = stem.bifurcation_energy_spent +
+                              bifurcate_decision_cost_j *
+                                cpu_sqrt(squared_euclidean_norm(stem.d_end_dt));
       auto should_sprout =
         stem.generation_count < 2 &&
         stem.bifurcation_energy_spent < stem.bifurcation_threshold &&
@@ -311,7 +317,8 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
     };
     auto limit_lifespan = [](stem &s) {
       float32 growth_cost_j_per_cm = 0.001;
-      s.life -= 0.25 * growth_cost_j_per_cm * cpu_sqrt(squared_euclidean_norm(s.d_end_dt));
+      s.life -= 0.25 * growth_cost_j_per_cm *
+                cpu_sqrt(squared_euclidean_norm(s.d_end_dt));
       if (s.generation_count != 0) {
         if (s.life <= 0.0) {
           s.d_end_dt = make_vec3(0);
@@ -329,22 +336,23 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
         perlin_noise2(fluctuation_dir_period_cm, s.end.x - s.start.x,
                       s.end.y - s.start.y));
       auto magnitude = 0.8;
-      s.end = addition(s.end, product(fluctuation_direction, fluctuation * magnitude));
+      s.end = addition(s.end,
+                       product(fluctuation_direction, fluctuation * magnitude));
     };
     auto strategy_three = [&](stem &stem) {
       integrate(stem);
-      fatal_ifnot(valid_stem(stem));
+      uu_fatal_ifnot(valid_stem(stem));
       collect_active_point(stem);
       tally_energy_spent(stem);
       limit_lifespan(stem);
       stem.dd_end_dtdt = make_vec3(0); /* reset forces */
       bifurcate(stem);
-      fatal_ifnot(valid_stem(stem));
+      uu_fatal_ifnot(valid_stem(stem));
       twirl_force(stem);
-      fatal_ifnot(valid_stem(stem));
-      fatal_ifnot(valid_stem(stem));
+      uu_fatal_ifnot(valid_stem(stem));
+      uu_fatal_ifnot(valid_stem(stem));
       growth_noise(stem);
-      fatal_ifnot(valid_stem(stem));
+      uu_fatal_ifnot(valid_stem(stem));
     };
     DOC("grow vine")
     {
@@ -379,8 +387,7 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
         u32 NY = density_NY;
         counted_range<float32, u32> density_memory;
         counted_range<bool, u32> density_degenerate_tag_memory;
-        alloc_array(&frame_allocator, density_NX * density_NY,
-                    &density_memory);
+        alloc_array(&frame_allocator, density_NX * density_NY, &density_memory);
         alloc_array(&frame_allocator, density_NX * density_NY,
                     &density_degenerate_tag_memory);
         density = make_array2(density_memory.first, density_memory.count,
@@ -412,18 +419,15 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
               if (history.stem_id == 0) return;
               s64 path_n =
                 min(container_size(history.path_storage), history.point_count);
-              for_each_n(
-                begin(history.path_storage),
-                path_n,
-                [&](vec3 pos) {
-                  float32 xs = (pos.x - x0) / simulation_grid.step;
-                  float32 ys = (pos.y - y0) / simulation_grid.step;
-                  if (xs < 0.0 || xs >= NX) return;
-                  if (ys < 0.0 || ys >= NY) return;
-                  auto xi = u32(xs);
-                  auto yi = u32(ys);
-                  *at(density, xi, yi) += 1.0 * block_area_reciprocal;
-                });
+              for_each_n(begin(history.path_storage), path_n, [&](vec3 pos) {
+                float32 xs = (pos.x - x0) / simulation_grid.step;
+                float32 ys = (pos.y - y0) / simulation_grid.step;
+                if (xs < 0.0 || xs >= NX) return;
+                if (ys < 0.0 || ys >= NY) return;
+                auto xi = u32(xs);
+                auto yi = u32(ys);
+                *at(density, xi, yi) += 1.0 * block_area_reciprocal;
+              });
             });
         }
       }
@@ -459,7 +463,8 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
                 }
                 dvec = make_vec3(-1.0, 0.0);
               }
-            auto du = product(dvec, -1.0 / cpu_sqrt(squared_euclidean_norm(dvec)));
+            auto du =
+              product(dvec, -1.0 / cpu_sqrt(squared_euclidean_norm(dvec)));
             for_each(begin(vine.stem_storage), vine.last_stem_pos,
                      [&](stem &stem) {
                        float32 xs = (stem.end.x - x0) / simulation_grid.step;
@@ -545,7 +550,7 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
                 [](vine_stem_history_header history) {
                   return history.stem_id == NULL_STEM_ID;
                 });
-      fatal_ifnot(vine.last_history_pos == first_unallocated);
+      uu_fatal_ifnot(vine.last_history_pos == first_unallocated);
     }
 #endif
     if (active_points_count > 0) {
@@ -576,25 +581,23 @@ UU_VINE_GROWING_API void vine_effect(slab_allocator* persistent_memory_,
         auto desired_camera_halfsize = product(camera_halfsize, scale);
         if (desired_camera_halfsize.x > 1000.0) {
           desired_camera_halfsize = product(desired_camera_halfsize,
-            1000.0 / desired_camera_halfsize.x);
+                                            1000.0 / desired_camera_halfsize.x);
         }
         camera_halfsize = interpolate_linear(
           camera_halfsize, desired_camera_halfsize, squared(0.05));
-        fatal_ifnot(valid(camera_halfsize));
-        fatal_ifnot(valid(camera_halfsize));
+        uu_fatal_ifnot(valid(camera_halfsize));
+        uu_fatal_ifnot(valid(camera_halfsize));
       }
   }
   auto vg = nvg;
   {
-    nvgBeginFrame(vg, int(framebuffer_width_px),
-                  int(framebuffer_height_px),
+    nvgBeginFrame(vg, int(framebuffer_width_px), int(framebuffer_height_px),
                   1.0); // should be 2.0 on retina
     nvgReset(vg);
     auto const halfwidth = camera_halfsize.x;
     auto const cm_to_display = framebuffer_width_px / (2.0 * halfwidth);
     vec3 center_in_screen_coordinates =
-      make_vec3(framebuffer_width_px / 2.0,
-                framebuffer_height_px / 2.0) +
+      make_vec3(framebuffer_width_px / 2.0, framebuffer_height_px / 2.0) +
       product(make_vec3(-camera_center.x, camera_center.y), cm_to_display);
     nvgTranslate(vg, center_in_screen_coordinates.x,
                  center_in_screen_coordinates.y);

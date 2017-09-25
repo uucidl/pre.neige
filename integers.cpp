@@ -6,6 +6,8 @@
 #include "machine_types.hpp"
 #endif
 #define Integer typename
+namespace uu
+{
 // (Modular Integers)
 struct modular_integer_tag {
 };
@@ -59,11 +61,9 @@ template <Integer I> bool addition_valid(I x, I addand)
 {
   return addition_valid(x, addand, IntegerConcept<I>());
 }
-template <Integer I> I product(I a, I b, modular_integer_tag)
-{
-  return a * b;
-}
+template <Integer I> I product(I a, I b, modular_integer_tag) { return a * b; }
 template <Integer I> I product(I a, I b)
 {
   return product(a, b, IntegerConcept<I>());
 }
+} // namespace uu

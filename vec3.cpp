@@ -6,16 +6,15 @@
 #ifndef UU_FLOATS
 #include "floats.cpp"
 #endif
+namespace uu
+{
 struct vec3 /* @models{Regular} */ {
   float x, y, z;
 };
 UU_VEC3_API vec3 make_vec3(float v) { return {v, v, v}; }
 UU_VEC3_API vec3 make_vec3(float x, float y) { return {x, y, 0.0}; }
-UU_VEC3_API vec3 make_vec3(float x, float y, float z)
-{
-  return {x, y, z};
-}
-UU_VEC3_API void assign(vec3* dest_, vec3 const x)
+UU_VEC3_API vec3 make_vec3(float x, float y, float z) { return {x, y, z}; }
+UU_VEC3_API void assign(vec3 *dest_, vec3 const x)
 {
   auto &dest = *dest_;
   dest = x;
@@ -64,3 +63,4 @@ UU_VEC3_API float squared_euclidean_distance(vec3 a, vec3 b)
 {
   return squared_euclidean_norm(addition(b, product(a, -1)));
 }
+} // namespace uu

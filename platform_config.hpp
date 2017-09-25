@@ -1,6 +1,6 @@
 // (Platform Configuration)
 #define UU_PLATFORM_CONFIG
-#define CPU_IA32 (1) // @doc{32bit intel platform}
+#define CPU_IA32 (1)   // @doc{32bit intel platform}
 #define CPU_X86_64 (2) // @doc{x64 introduced by AMD and adopted by intel}
 #define OS_OSX (1)
 #define OS_WINDOWS (2)
@@ -25,8 +25,8 @@
 #endif
 #if COMPILER == COMPILER_CLANG
 #define CLANG_ATTRIBUTE(x) __attribute__((x))
-#define debugger_break() DOC("invoke debugger") asm("int3")
+#define uu_debugger_break() DOC("invoke debugger") asm("int3")
 #else
 #define CLANG_ATTRIBUTE(x)
-#define debugger_break() DOC("invoke debugger") __debugbreak()
+#define uu_debugger_break() DOC("invoke debugger") __debugbreak()
 #endif

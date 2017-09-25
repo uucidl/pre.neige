@@ -2,10 +2,22 @@
 # fail on any command failure
 set -e
 HERE="$(dirname "${0}")"
+CCFLAGS="${CCFLAGS:=-Wall -Wextra -Wno-unused-function} "-Wno-tautological-compare""
+echo "Using CCFLAGS=${CCFLAGS}"
+for modf in aabb2.cpp algorithms.cpp allocators.cpp \
+	    arithmetics.cpp array2.cpp circular_ordinate.cpp \
+	    cpu.cpp errors.cpp \
+	    floats.cpp integers.cpp os.cpp \
+	    perlin_noise2.cpp pointers.cpp vec3.cpp \
+	    vine_effect.cpp ; do
+    echo "MODULE_TEST\t${modf}"
+    clang++ ${CCFLAGS} -DOS=OS_OSX -DCPU=CPU_X86_64 -std=c++11 -fsyntax-only "${modf}"
+done
+
 CC=clang make -C hidapi/mac -f Makefile-manual
 clang -c uu.micros/libs/glew/src/glew.c -Iuu.micros/libs/glew/include/ -o glew.o # compile glew separately because it's slow to compile
-clang++ -DOS=OS_OSX -DNEIGE_SLOW -g -std=c++11 -framework System -Wall -Wextra \
-  -Wno-tautological-compare neige_unit.cpp -o neige \
+clang++ ${CCFLAGS} -DOS=OS_OSX -DNEIGE_SLOW -g -std=c++11 -framework System \
+  neige_unit.cpp -o neige \
   -Iuu.micros/include/ -framework OpenGL -Iuu.micros/libs/glew/include/ \
   -Iuu.micros/libs -Luu.micros/libs/Darwin_x86_64/ -lglfw3 -framework Cocoa \
   -framework IOKit -framework CoreAudio hidapi/mac/hid.o glew.o && \

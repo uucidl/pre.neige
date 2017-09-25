@@ -6,6 +6,8 @@
 #ifndef REQUIRES
 #define REQUIRES(...)
 #endif
+namespace uu
+{
 template <OrdinateConcept Ordinate> struct circular_ordinate {
   Ordinate current;
   Ordinate first;
@@ -57,3 +59,4 @@ circular_ordinate<Ordinate> make_circular_ordinate(Ordinate first,
 {
   return {first, first, last};
 }
+} // namespace uu

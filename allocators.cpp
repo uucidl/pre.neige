@@ -15,9 +15,14 @@
 #ifndef UU_ERRORS
 #include "errors.cpp"
 #endif
+#ifndef UU_ALGORITHMS
+#include "algorithms.cpp"
+#endif
 #ifndef DOC
 #define DOC(...)
 #endif
+namespace uu
+{
 template <typename T, IntegralConcept I> struct counted_range {
   T *first;
   I count;
@@ -26,8 +31,7 @@ template <typename T, IntegralConcept I>
 struct container_concept<counted_range<T, I>> {
   using read_write_ordinate = PointerOf<T>;
 };
-template <typename T, IntegralConcept I>
-I container_size(counted_range<T, I> x)
+template <typename T, IntegralConcept I> I container_size(counted_range<T, I> x)
 {
   return x.count;
 }
@@ -53,7 +57,6 @@ step_within(counted_range<T, I> x,
 {
   auto &p = *position;
   auto const previous = p;
-  fatal_if(p < 0);
   if (I(p - x.first) < x.count) {
     p = successor(p);
   }
@@ -62,11 +65,12 @@ step_within(counted_range<T, I> x,
 template <typename T, IntegralConcept I>
 ReadWriteOrdinate<counted_range<T, I>>
 set_step_within(counted_range<T, I> x,
-                PointerOf<ReadWriteOrdinate<counted_range<T, I>>> position, T value)
+                PointerOf<ReadWriteOrdinate<counted_range<T, I>>> position,
+                T value)
 {
   auto &p = *position;
   auto const previous = p;
-  fatal_if(p < x.first);
+  uu_fatal_if(p < x.first);
   if (p - x.first < x.count) {
     sink(p) = value;
     p = successor(p);
@@ -113,7 +117,7 @@ struct slab_allocator {
   memory_size size;
 };
 UU_ALLOCATORS_API slab_allocator make_slab_allocator(memory_address start,
-                                                   memory_size size)
+                                                     memory_size size)
 {
   slab_allocator result;
   result.start = start;
@@ -122,12 +126,13 @@ UU_ALLOCATORS_API slab_allocator make_slab_allocator(memory_address start,
   return result;
 }
 UU_ALLOCATORS_API memory_address alloc(slab_allocator *slab_allocator,
-                                     memory_size size)
+                                       memory_size size)
 {
   // TODO(nicolas): alignment and zeroing
   memory_size current_size =
     memory_size(slab_allocator->unallocated_start - slab_allocator->start);
-  fatal_ifnot(addition_less_or_equal(current_size, size, slab_allocator->size));
+  uu_fatal_ifnot(
+    addition_less_or_equal(current_size, size, slab_allocator->size));
   memory_address block_start = slab_allocator->unallocated_start;
   slab_allocator->unallocated_start += size;
   return block_start;
@@ -137,9 +142,10 @@ UU_ALLOCATORS_API memory_size allocatable_size(slab_allocator *slab_allocator)
   return memory_size(slab_allocator->start + slab_allocator->size -
                      slab_allocator->unallocated_start);
 }
-UU_ALLOCATORS_API void free(slab_allocator *slab_allocator, memory_address start,
-                          memory_size size)
+UU_ALLOCATORS_API void free(slab_allocator *slab_allocator,
+                            memory_address start, memory_size size)
 {
-  fatal_ifnot(start == slab_allocator->unallocated_start - size);
+  uu_fatal_ifnot(start == slab_allocator->unallocated_start - size);
   slab_allocator->unallocated_start = start;
 }
+} // namespace uu

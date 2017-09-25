@@ -6,12 +6,20 @@
 #ifndef UU_MACHINE_TYPES
 #include "machine_types.hpp"
 #endif
+#ifndef UU_INTEGERS
+#include "integers.cpp"
+#endif
+#ifndef UU_POINTERS
+#include "pointers.cpp"
+#endif
 #ifndef REQUIRES
 #define REQUIRES(...)
 #endif
 #ifndef DOC
 #define DOC(...)
 #endif
+namespace uu
+{
 template <IntegralConcept I> bool zero(I x) { return x == I(0); }
 template <IntegralConcept I> I successor(I x) { return x + 1; }
 template <IntegralConcept I> I predecessor(I x) { return x - 1; }
@@ -126,8 +134,8 @@ I0 sequential_partition_nonstable(I0 first, I0 last, OpPred op_pred)
 }
 template <OrdinateConcept I0, IntegralConcept C0, OrdinateConcept I1,
           IntegralConcept C1>
-REQUIRES(ValueType(I0) == ValueType(I1)) void copy_n_m(I0 from, C0 from_size,
-                                                       I1 to, C1 to_size)
+REQUIRES(ValueType(I0) == ValueType(I1))
+void copy_n_m(I0 from, C0 from_size, I1 to, C1 to_size)
 {
   while (from_size > 0 && to_size > 0) {
     sink(to) = source(from);
@@ -150,3 +158,4 @@ I1 copy_n_bounded(I0 from, C0 from_size, I1 to, I1 to_last)
   }
   return to;
 }
+} // namespace uu

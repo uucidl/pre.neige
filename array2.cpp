@@ -12,6 +12,8 @@
 #ifndef MODELS
 #define MODELS(...)
 #endif
+namespace uu
+{
 template <typename T, typename I> struct array2_header MODELS(container) {
   T *memory;
   I memory_size;
@@ -25,18 +27,18 @@ struct container_concept<array2_header<T, I>> {
 template <typename T, typename I>
 array2_header<T, I> make_array2(T *memory, I memory_size, I d0, I d1)
 {
-  fatal_ifnot(d0 * d1 <= memory_size);
+  uu_fatal_ifnot(d0 * d1 <= memory_size);
   return {memory, memory_size, d0, d1};
 }
 template <typename T, typename I>
 PointerOf<T> at(array2_header<T, I> const &array, I x0, I x1)
 {
 #if defined(NEIGE_SLOW)
-  fatal_ifnot(x0 < array.d0_count);
-  fatal_ifnot(x1 < array.d1_count);
+  uu_fatal_ifnot(x0 < array.d0_count);
+  uu_fatal_ifnot(x1 < array.d1_count);
 #endif
   I offset = x1 * array.d0_count + x0;
-  fatal_ifnot(offset < array.memory_size);
+  uu_fatal_ifnot(offset < array.memory_size);
   return &array.memory[offset];
 }
 template <typename T, typename I>
@@ -49,3 +51,4 @@ memory_size container_size(array2_header<T, I> const &x)
 {
   return x.d0_count * x.d1_count;
 }
+} // namespace uu

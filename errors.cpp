@@ -1,11 +1,11 @@
 #define UU_ERRORS
+// die if bool is false
+#define uu_fatal_ifnot(x)                                                      \
+  if (!(x)) {                                                                  \
+    uu_debugger_break();                                                       \
+    uu::os_fatal();                                                            \
+  }
+#define uu_fatal_if(x) uu_fatal_ifnot(!(x))
 #ifndef UU_OS
 #include "os.cpp"
 #endif
-// die if bool is false
-#define fatal_ifnot(x)                                                         \
-  if (!(x)) {                                                                  \
-    debugger_break();                                                       \
-    os_fatal();                                                                \
-  }
-#define fatal_if(x) fatal_ifnot(!(x))

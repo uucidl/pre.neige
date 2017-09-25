@@ -7,6 +7,8 @@
 #ifndef UU_CONCEPTS
 #include "concepts.hpp"
 #endif
+namespace uu
+{
 // (PointerOf)
 template <typename T> using PointerOf = T *;
 using u8 = unsigned char;
@@ -28,7 +30,7 @@ using s64 = signed long long;
 using float32 = float;
 using float64 = double;
 
-#define SizeOf(type_x) (sizeof (type_x))
+#define SizeOf(type_x) (sizeof(type_x))
 static_assert(SizeOf(u8) == 1, "u8");
 static_assert(SizeOf(s8) == 1, "s8");
 static_assert(SizeOf(u16) == 2, "u16");
@@ -41,10 +43,13 @@ static_assert(SizeOf(float32) == 4, "float32");
 static_assert(SizeOf(float64) == 8, "float64");
 
 // (Memory)
-template <typename T> struct distance_type_impl<PointerOf<T>> { using type = s64; };
+template <typename T> struct distance_type_impl<PointerOf<T>> {
+  using type = s64;
+};
 
 using memory_address = PointerOf<u8>;
 using memory_size = DistanceType<memory_address>;
 static_assert(SizeOf(memory_address) == SizeOf(memory_size),
               "memory_size incorrect for architecture");
+} // namespace uu
 #endif

@@ -9,13 +9,17 @@
 #ifndef UU_MACHINE_TYPES
 #include "machine_types.hpp"
 #endif
+namespace uu
+{
 UU_CPU_API inline float64 cpu_abs(float64 x);
 UU_CPU_API inline float64 cpu_sin(float64 x);
 UU_CPU_API inline float64 cpu_cos(float64 x);
 UU_CPU_API inline float64 cpu_sqrt(float64 x);
 UU_CPU_API inline bool cpu_finite(float64 x);
-
+} // namespace uu
 #if COMPILER == COMPILER_CLANG && (CPU == CPU_IA32 || CPU == CPU_X86_64)
+namespace uu
+{
 UU_CPU_API u8 bit_scan_reverse32(u32 x)
 {
   u32 y;
@@ -69,10 +73,13 @@ UU_CPU_API float64 cpu_sqrt(float64 x)
   asm("fsqrt" : "=t"(y) : "0"(x));
   return y;
 }
+} // namespace uu
 #elif COMPILER == COMPILER_MSC && (CPU == CPU_IA32 || CPU == CPU_X86_64)
-#include <intrin.h>
 #include <float.h>
+#include <intrin.h>
 #include <math.h>
+namespace uu
+{
 /* see documentation:
  * URL(https://msdn.microsoft.com/en-us/library/hh977023.aspx) */
 UU_CPU_API u8 bit_scan_reverse32(u32 x)
@@ -87,4 +94,5 @@ UU_CPU_API inline float64 cpu_sin(float64 x) { return sin(x); }
 UU_CPU_API inline float64 cpu_cos(float64 x) { return cos(x); }
 UU_CPU_API bool cpu_finite(float64 x) { return _finite(x); }
 UU_CPU_API float64 cpu_sqrt(float64 x) { return sqrtf(x); }
+} // namespace uu
 #endif

@@ -1,4 +1,6 @@
 #define UU_ARITHMETICS
+namespace uu
+{
 // (Arithmetics)
 template <typename T> T absolute_value(T x) { return x < T(0) ? -x : x; }
 template <typename T> bool finite(T x);
@@ -28,3 +30,4 @@ template <typename T> T upper_division(T x, T divisor)
 {
   return 1 + -lower_division(-x, divisor);
 }
+} // namespace uu

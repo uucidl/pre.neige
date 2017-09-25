@@ -3,6 +3,8 @@
 #ifndef UU_MACHINE_TYPES
 #include "machine_types.hpp"
 #endif
+namespace uu
+{
 template <typename T> struct readable_concept<PointerOf<T>> {
   using readable_type = T &; // at least readable, also writable
 };
@@ -23,3 +25,4 @@ template <typename T> memory_address AddressOf(T &xref)
 {
   return memory_address(&xref);
 }
+} // namespace uu

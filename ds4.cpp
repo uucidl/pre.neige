@@ -2,8 +2,8 @@
 // quick hack job by @mmalex
 // thanks to libhid author and @johndrinkwater and
 // https://github.com/chrippa/ds4drv
-#include <stdio.h>
 #include "hidapi/hidapi/hidapi.h" // using http://www.signal11.us/oss/hidapi/
+#include <stdio.h>
 
 typedef unsigned char u8;
 typedef unsigned short u16;
