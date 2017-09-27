@@ -58,7 +58,6 @@ struct stem {
   vec3 d_end_dt;    // first derivative
   vec3 dd_end_dtdt; // second derivative
   vec3 density_force;
-  bool apply_density_force;
   u32 generation_count;
   float32 twirl;
   float32 energy_spent;
@@ -672,18 +671,8 @@ vine_effect(slab_allocator *persistent_memory_,
         float32 scale = 30.0;
         nvgStrokeWidth(vg, 0.1);
         nvgBeginPath(vg);
-        nvgStrokeColor(vg, nvgRGBA(88, 88, 108, 255));
-        for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem stem) {
-          if (stem.apply_density_force) return;
-          nvgMoveTo(vg, stem.end.x, stem.end.y);
-          nvgLineTo(vg, stem.end.x + scale * stem.density_force.x,
-                    stem.end.y + scale * stem.density_force.y);
-        });
-        nvgStroke(vg);
-        nvgBeginPath(vg);
         nvgStrokeColor(vg, nvgRGBA(188, 188, 108, 255));
         for_each(begin(vine.stem_storage), vine.last_stem_pos, [&](stem stem) {
-          if (!stem.apply_density_force) return;
           nvgMoveTo(vg, stem.end.x, stem.end.y);
           nvgLineTo(vg, stem.end.x + scale * stem.density_force.x,
                     stem.end.y + scale * stem.density_force.y);
