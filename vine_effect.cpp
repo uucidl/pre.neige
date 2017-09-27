@@ -340,16 +340,12 @@ vine_effect(slab_allocator *persistent_memory_,
     };
     auto strategy_three = [&](stem &stem) {
       integrate(stem);
-      uu_fatal_ifnot(valid_stem(stem));
       collect_active_point(stem);
       tally_energy_spent(stem);
       limit_lifespan(stem);
       stem.dd_end_dtdt = make_vec3(0); /* reset forces */
       bifurcate(stem);
-      uu_fatal_ifnot(valid_stem(stem));
       twirl_force(stem);
-      uu_fatal_ifnot(valid_stem(stem));
-      uu_fatal_ifnot(valid_stem(stem));
       growth_noise(stem);
       uu_fatal_ifnot(valid_stem(stem));
     };
