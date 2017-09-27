@@ -213,9 +213,10 @@ vine_effect(slab_allocator *persistent_memory_,
   aabb2 eviction_bb = zero_aabb2();
   aabb2 active_points_bounding_box = zero_aabb2();
   vec3 active_point_average = make_vec3(0);
-  grid2 simulation_grid;
+  grid2 density_grid;
   array2_header<float32, u32> density;
   array2_header<bool, u32> density_degenerate_tag;
+  float32 stem_radius = 0.07;
   {
     vec3 active_points_running_sum = {};
     u8 active_points_count = 0;
@@ -369,15 +370,15 @@ vine_effect(slab_allocator *persistent_memory_,
       camera_bb = translate(camera_bb, camera_center.x, camera_center.y);
     }
     aabb2 eviction_bb = scale_around_center(camera_bb, 2.0);
-    simulation_grid = make_grid2(camera_bb, 1.5, 100);
+    density_grid = make_grid2(camera_bb, 1.0, 100);
     if (1) DOC("collect density")
       {
-        u32 density_NY = (simulation_grid.bounding_box.max_y -
-                          simulation_grid.bounding_box.min_y) /
-                         simulation_grid.step;
-        u32 density_NX = (simulation_grid.bounding_box.max_x -
-                          simulation_grid.bounding_box.min_x) /
-                         simulation_grid.step;
+        u32 density_NY = (density_grid.bounding_box.max_y -
+                          density_grid.bounding_box.min_y) /
+                         density_grid.step;
+        u32 density_NX = (density_grid.bounding_box.max_x -
+                          density_grid.bounding_box.min_x) /
+                         density_grid.step;
         u32 NX = density_NX;
         u32 NY = density_NY;
         counted_range<float32, u32> density_memory;
@@ -394,19 +395,23 @@ vine_effect(slab_allocator *persistent_memory_,
         fill_n(begin(density_degenerate_tag),
                container_size(density_degenerate_tag), false);
         {
-          float32 const y0 = simulation_grid.bounding_box.min_y;
-          float32 const x0 = simulation_grid.bounding_box.min_x;
+          float32 const y0 = density_grid.bounding_box.min_y;
+          float32 const x0 = density_grid.bounding_box.min_x;
           float32 const block_area_reciprocal =
-            1.0f / squared(simulation_grid.step);
+            1.0f / squared(density_grid.step);
+	  auto const record_stem_density = [&]
+	    (vec3 pos) {
+	          float32 xs = (pos.x - x0) / density_grid.step;
+		  float32 ys = (pos.y - y0) / density_grid.step;
+		  if (xs < 0.0 || xs >= NX) return;
+		  if (ys < 0.0 || ys >= NY) return;
+		  auto xi = u32(xs);
+		  auto yi = u32(ys);
+		  *at(density, xi, yi) += (stem_radius*stem_radius) * block_area_reciprocal;
+	  };
           for_each(begin(vine.stem_storage), vine.last_stem_pos,
                    [&](stem &stem) {
-                     float32 xs = (stem.end.x - x0) / simulation_grid.step;
-                     float32 ys = (stem.end.y - y0) / simulation_grid.step;
-                     if (xs < 0.0 || xs >= NX) return;
-                     if (ys < 0.0 || ys >= NY) return;
-                     auto xi = u32(xs);
-                     auto yi = u32(ys);
-                     *at(density, xi, yi) += 1.0 * block_area_reciprocal;
+		     record_stem_density(stem.end);
                    });
           for_each(
             begin(vine.history_storage), vine.last_history_pos,
@@ -415,13 +420,7 @@ vine_effect(slab_allocator *persistent_memory_,
               s64 path_n =
                 min(container_size(history.path_storage), history.point_count);
               for_each_n(begin(history.path_storage), path_n, [&](vec3 pos) {
-                float32 xs = (pos.x - x0) / simulation_grid.step;
-                float32 ys = (pos.y - y0) / simulation_grid.step;
-                if (xs < 0.0 || xs >= NX) return;
-                if (ys < 0.0 || ys >= NY) return;
-                auto xi = u32(xs);
-                auto yi = u32(ys);
-                *at(density, xi, yi) += 1.0 * block_area_reciprocal;
+		  record_stem_density(pos);
               });
             });
         }
@@ -618,14 +617,14 @@ vine_effect(slab_allocator *persistent_memory_,
       {
         u32 NX = density.d0_count;
         u32 NY = density.d1_count;
-        float32 step = simulation_grid.step;
-        float32 y0 = simulation_grid.bounding_box.min_y;
+        float32 step = density_grid.step;
+        float32 y0 = density_grid.bounding_box.min_y;
         for (u32 yi = 0; yi < NY; ++yi) {
-          float32 x0 = simulation_grid.bounding_box.min_x;
+          float32 x0 = density_grid.bounding_box.min_x;
           for (u32 xi = 0; xi < NX; ++xi) {
             float32 d = *at(density, xi, yi);
             nvgBeginPath(vg);
-            float alpha = 255.0 * min(1.0, d / 8.0);
+            float alpha = 255.0 * min(1.0, 10.0*d);
             nvgFillColor(vg, nvgRGBA(80, 125, 80, alpha));
             if (*at(density_degenerate_tag, xi, yi)) {
               nvgFillColor(vg, nvgRGBA(255, 125, 80, alpha));
