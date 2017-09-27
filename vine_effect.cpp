@@ -429,11 +429,8 @@ vine_effect(slab_allocator *persistent_memory_,
       {
         auto NX = density.d0_count;
         auto NY = density.d1_count;
-        float32 y0 = simulation_grid.bounding_box.min_y;
-        float32 x0 = simulation_grid.bounding_box.min_x;
-        float32 step = simulation_grid.step;
-        float32 y1 = y0 + step;
-        float32 x1 = x0 + step;
+        float32 y0 = density_grid.bounding_box.min_y;
+        float32 x0 = density_grid.bounding_box.min_x;
         for (u32 yi = 1; yi < NY - 1; ++yi) {
           for (u32 xi = 1; xi < NX - 1; ++xi) {
             auto v00 = *at(density, xi, yi);
@@ -457,27 +454,21 @@ vine_effect(slab_allocator *persistent_memory_,
                 }
                 dvec = make_vec3(-1.0, 0.0);
               }
-            auto du =
-              product(dvec, -1.0 / cpu_sqrt(squared_euclidean_norm(dvec)));
+            auto du = product(dvec, -1.0 / cpu_sqrt(squared_euclidean_norm(dvec)));
             for_each(begin(vine.stem_storage), vine.last_stem_pos,
                      [&](stem &stem) {
-                       float32 xs = (stem.end.x - x0) / simulation_grid.step;
-                       float32 ys = (stem.end.y - y0) / simulation_grid.step;
+                       float32 xs = (stem.end.x - x0) / density_grid.step;
+                       float32 ys = (stem.end.y - y0) / density_grid.step;
                        if (xs < 0.0 || xs >= NX) return;
                        if (ys < 0.0 || ys >= NY) return;
                        auto sxi = u32(xs);
                        auto syi = u32(ys);
                        if (sxi != xi || syi != yi) return;
-                       auto force = product(du, 0.0003 * squared(v00));
+                       auto force = product(du, 0.3*squared(v00));
                        stem.density_force = force;
                        stem.dd_end_dtdt = stem.dd_end_dtdt + force;
                      });
-
-            x0 = x1;
-            x1 += step;
           }
-          y0 = y1;
-          y1 += step;
         }
       }
     if (1) DOC("stream in/out stems that are in simulation region")
