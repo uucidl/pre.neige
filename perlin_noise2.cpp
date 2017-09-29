@@ -11,6 +11,7 @@
 #endif
 namespace uu
 {
+// returns a float in interval [-1..+1]
 UU_PERLIN_NOISE2_API float32 perlin_noise2(float32 period, float32 x,
                                            float32 y);
 } // namespace uu
