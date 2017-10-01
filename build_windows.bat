@@ -60,6 +60,8 @@ cl %CommonCLFlags% -Fo:output\ -Fe:output\neige.exe %HIDAPIProducts% -nologo -EH
         -NODEFAULTLIB:libcmtd.lib -NODEFAULTLIB:msvcrtd.lib ^
         legacy_stdio_definitions.lib
 if %ERRORLEVEL% neq 0 goto in_error_exit
+REM -- Copy assets
+XCOPY assets output\assets\ /S
 :in_success_exit
 endlocal
 exit /b 0
