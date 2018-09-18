@@ -36,14 +36,14 @@ BUILD(OSX, "clang++ -DOS=OS_OSX -DSTATIC_GLEW -DNEIGE_SLOW -g -std=c++11 \
   if (!(__predicate_expr)) uu_debugger_break()
 #define MODELS(...)
 #define REQUIRES(...)
-#include "integers.cpp"
-#include "floats.cpp"
-#include "arithmetics.cpp"
-#include "machine_types.hpp"
-#include "pointers.cpp"
-#include "algorithms.cpp"
-#include "allocators.cpp"
-#include "errors.cpp"
+#include "src/integers.cpp"
+#include "src/floats.cpp"
+#include "src/arithmetics.cpp"
+#include "src/machine_types.hpp"
+#include "src/pointers.cpp"
+#include "src/algorithms.cpp"
+#include "src/allocators.cpp"
+#include "src/errors.cpp"
 namespace uu
 {
 // (Fixed Array Type)
@@ -123,7 +123,7 @@ struct DS4Out DOC("Output message for wired connection")
 } // namespace uu
 #include "hidapi/hidapi/hidapi.h"
 #ifndef UU_VEC3
-#include "vec3.cpp"
+#include "src/vec3.cpp"
 #endif
 namespace uu
 {
@@ -146,7 +146,7 @@ internal_symbol vec3 operator-(vec3 a, vec3 b)
 } // namespace uu
 // (Main)
 #include "nanovg/src/nanovg.h"
-#include "neige_random.hpp"
+#include "src/neige_random.hpp"
 #include "uu.micros/include/micros/api.h"
 #include "uu.micros/include/micros/gl3.h"
 #include "uu.ticks/src/render-debug-string/render-debug-string.hpp"
@@ -345,7 +345,7 @@ void render_next_gl3(unsigned long long micros, Display display)
   }
   transient_memory.frame_allocator = saved_frame_allocator;
 }
-#include "vine_effect.cpp"
+#include "src/vine_effect.cpp"
 namespace uu
 {
 struct music_event {

@@ -359,7 +359,7 @@ vine_effect(slab_allocator *persistent_memory_,
     stem.dd_end_dtdt = make_vec3(0); /* reset forces */
     bifurcate(stem);
     twirl_force(stem);
-#if 0
+#if 1
     growth_noise(stem);
 #endif
     uu_fatal_ifnot(valid_stem(stem));
@@ -645,10 +645,11 @@ void vine_effect_debug_draw(vine_effect_drawables_header const &vine_drawables,
         char resolution_text[32];
         auto resolution_text_n = std::snprintf(
           resolution_text, sizeof resolution_text, "%0.3f", grid.step);
-        char position_text[32];
+        char position_text[96];
         auto position_text_n =
-          std::snprintf(position_text, sizeof position_text, "%0.3fx%0.3f",
-                        camera_bb.min_x, camera_bb.min_y);
+          std::snprintf(position_text, sizeof position_text, "%0.3fx%0.3f .. %0.3fx%0.3f",
+                        camera_bb.min_x, camera_bb.min_y,
+                        camera_bb.max_x-camera_bb.min_x, camera_bb.max_y-camera_bb.min_y);
         nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
         if (resolution_text_n < (int)(sizeof resolution_text)) {
           nvgText(vg, 0, framebuffer_height_px, resolution_text, nullptr);
