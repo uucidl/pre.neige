@@ -85,7 +85,7 @@ namespace uu
 enum DS4Constants {
   DS4Constants_MAGIC = 0x0004ff05,
   DS4Constants_VendorId = 0x54c,
-  DS4Constants_ProductId = 0x5c4,
+  DS4Constants_ProductId = 0x9cc, // 2023-05, I used to have 0x5c4 here but now I see 0x9cc on the ds4 I have. Did sony use multiple product ids? I see this is another revision of the ds4. There's also a product id 0x0ba for the dongle.
 };
 #pragma pack(push, 1)
 struct DS4Touch {
@@ -170,6 +170,8 @@ internal_symbol hid_device *query_ds4(u64 micros)
 {
   // TODO(uucidl): real hid support would question the device for its
   // capabilities. Would we gain knowledge about the DS4 gyro min/max?
+  //
+  // TODO(uucidl): enumerate all sony devices and try to find out if these are ds4(s), that way we're more future-proof
   local_state u64 last_check_micros = 0;
   if (!global_optional_ds4 && micros - last_check_micros > 3000000) {
     last_check_micros = micros;
