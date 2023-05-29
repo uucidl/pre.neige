@@ -296,7 +296,7 @@ void render_next_gl3(unsigned long long micros, Display display)
   }
   glClearColor(background_color.x, background_color.y, background_color.z, 0.0);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  background_color = 0.99f * background_color;
+  background_color = 0.92f * background_color; // TODO(uucidl): make this frame rate independent
   DOC("ui")
   {
     if (ds4_device) {
