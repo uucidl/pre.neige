@@ -357,7 +357,7 @@ vine_effect(slab_allocator *persistent_memory_,
     stem.dd_end_dtdt = make_vec3(0); /* reset forces */
     bifurcate(stem);
     twirl_force(stem);
-#if 1
+#if 0
     // TODO(nicolas): how to visualize effect of growth noise on path?
     // TODO(nicolas): doesn't it introduce some energy into the system?
     growth_noise(stem);
