@@ -354,7 +354,7 @@ vine_effect(slab_allocator *persistent_memory_,
     collect_active_point(stem);
     tally_energy_spent(stem);
     limit_lifespan(stem);
-    stem.dd_end_dtdt = make_vec3(0); /* reset forces */
+    stem.dd_end_dtdt = make_vec3(0); /* reset forces */ // NOTE(nil): is it ok to turn forces on/off instantaneously in a physics simulation?
     bifurcate(stem);
     twirl_force(stem);
 #if 0
