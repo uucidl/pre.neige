@@ -340,8 +340,6 @@ vine_effect(slab_allocator *persistent_memory_,
     }
   };
   auto growth_noise = [](stem &s) {
-    // TODO(nicolas): how to visualize effect of growth noise on path?
-    // TODO(nicolas): doesn't it introduce some energy into the system?
     auto mag_period_cm = 7.0;
     auto mag = perlin_noise2(mag_period_cm, s.end.x, s.end.y);
     auto fluctuation_dir_period_cm = 12.0;
@@ -360,6 +358,8 @@ vine_effect(slab_allocator *persistent_memory_,
     bifurcate(stem);
     twirl_force(stem);
 #if 1
+    // TODO(nicolas): how to visualize effect of growth noise on path?
+    // TODO(nicolas): doesn't it introduce some energy into the system?
     growth_noise(stem);
 #endif
     uu_fatal_ifnot(valid_stem(stem));
